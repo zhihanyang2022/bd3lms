@@ -15,7 +15,7 @@
 #SBATCH --requeue                     # Requeue upon preemption
 
 BLOCK_SIZE=16
-CKPT_PATH=mdlm_pretrain_owt_850k.ckpt
+CKPT_PATH=$PWD/mdlm_pretrain_owt_850k.ckpt
 
 python -u main.py \
     loader.global_batch_size=512 \

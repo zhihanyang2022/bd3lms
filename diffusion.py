@@ -49,6 +49,7 @@ class Diffusion(L.LightningModule):
     self.antithetic_sampling = self.config.training.antithetic_sampling
     self.cross_attn = self.config.algo.cross_attn
     self.ignore_bos = self.config.algo.ignore_bos
+    self.mdlm_loss_scale = self.config.algo.mdlm_loss_scale
     if (not hasattr(self.tokenizer, 'mask_token')
         or self.tokenizer.mask_token is None):
       self.mask_index = self.vocab_size
@@ -766,6 +767,14 @@ class Diffusion(L.LightningModule):
 
     loss_scale, p = self.noise(t)
     sigma = self._sigma_from_p(p[:,0].unsqueeze(-1))
+    dsigma = - loss_scale * torch.expm1(sigma) # used for sedd
+
+    # below is needed to reproduce mdlm/sedd numbers with models from sahoo et al
+    # (numerical imprecision computing probs under loglinear schedule)
+    if self.mdlm_loss_scale:
+      sigma, dsigma = self.noise.total_noise(t), self.noise.rate_noise(t)
+      p = 1 - torch.exp(-sigma)
+      loss_scale = - (dsigma / torch.expm1(sigma))
 
     xt = self.q_xt(x0,
                    p,
@@ -783,7 +792,6 @@ class Diffusion(L.LightningModule):
     utils.print_nans(model_output, 'model_output')
 
     if self.parameterization == 'sedd':
-      dsigma = - loss_scale * torch.expm1(sigma)
       return dsigma * self._score_entropy(
         model_output, sigma, xt, x0)
 

@@ -28,5 +28,5 @@ srun python -u -m main \
     +wandb.offline=true \
     seed=$SEED \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=/home/ma2238/sar_os/text-diffusion/varlen_sample_logs/samples_ar \
+    sampling.logdir=$PWD/sample_logs/samples_ar \
     sampling.var_length=true

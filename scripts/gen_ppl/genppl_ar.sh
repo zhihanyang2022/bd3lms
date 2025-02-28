@@ -24,8 +24,8 @@ srun python -u -m main \
     data=openwebtext-split \
     algo=ar \
     model.length=$LENGTH \
-    eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-owt-ar-noeos-v4-1/last.ckpt \
+    eval.checkpoint_path=$PWD/ar_owt_noeos.ckpt \
     +wandb.offline=true \
     seed=$SEED \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=/home/ma2238/sar_os/text-diffusion/sample_logs/samples_ar_len${LENGTH}
+    sampling.logdir=$PWD/sample_logs/samples_ar_len${LENGTH}

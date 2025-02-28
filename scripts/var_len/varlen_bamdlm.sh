@@ -35,5 +35,5 @@ srun python -u main.py \
     model.attn_backend=sdpa \
     seed=$SEED \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=/home/ma2238/sar_os/text-diffusion/varlen_sample_logs/samples_genlen_bamdlm_blocksize${BLOCK_SIZE} \
+    sampling.logdir=$PWD/varlen_sample_logs/samples_genlen_bamdlm_blocksize${BLOCK_SIZE} \
     sampling.var_length=true

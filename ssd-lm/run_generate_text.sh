@@ -6,7 +6,7 @@
 #SBATCH --get-user-env                         # retrieve the users login environment
 #SBATCH --mem=32000                            # server memory requested (per node)
 #SBATCH -t 960:00:00                           # Time limit (hh:mm:ss)
-#SBATCH --partition=gpu                   # Request partition
+#SBATCH --partition=gpu,kuleshov                   # Request partition
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --constraint="[a5000|a6000|3090]"
@@ -23,7 +23,7 @@ LEN=${2} # 1025, 2050
 TOTAL_T=${3} # 1000, 25
 
 srun python generate_text.py \
-  --generated_samples_outfile="/home/ma2238/sar_os/text-diffusion/ssd-lm/generated_samples/samples_openwebtext-valid_bs25_l${LEN}_t${TOTAL_T}_SEED${SEED}" \
+  --generated_samples_outfile="/home/ma2238/bam-dlms/ssd-lm/generated_samples/samples_openwebtext-valid_bs25_l${LEN}_t${TOTAL_T}_SEED${SEED}" \
   --num_samples_to_generate=1 \
   --seed=${SEED} \
   --model_name_or_path="xhan77/ssdlm" \

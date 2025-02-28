@@ -28,4 +28,4 @@ srun python -u -m main \
     sampling.var_length=true \
     seed=$SEED \
     sampling.nucleus_p=0.99 \
-    sampling.logdir=/home/ma2238/sar_os/text-diffusion/varlen_sample_logs/samples_sedd_len1024
+    sampling.logdir=$PWD/sample_logs/samples_sedd_len1024
