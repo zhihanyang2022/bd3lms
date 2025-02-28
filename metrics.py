@@ -189,11 +189,11 @@ class Metrics:
         if i == 0:
           # for the first stride, use the entire eval_context_size
           start = 0
-          end = min(eval_context_size, samples_batch.shape[-1] + 1)
+          end = min(eval_context_size, samples_batch.shape[-1])
         else:
           # then, move the window by stride
           start = i * stride
-          end = min(start + eval_context_size, samples_batch.shape[-1] + 1)
+          end = min(start + eval_context_size, samples_batch.shape[-1])
         sample_chunk = samples_batch[..., start:end]
         attn_mask_chunk = attn_mask_batch[..., start:end]
 
