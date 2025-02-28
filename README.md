@@ -3,18 +3,18 @@ By [Marianne Arriola](https://mariannearriola.github.io), [Subham Sekhar Sahoo](
 
 <!-- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/) -->
 [![deploy](https://img.shields.io/badge/Paper_📃-green)](https://openreview.net/forum?id=tyEyYT267x)
-[![deploy](https://img.shields.io/badge/Blog_📝%20%20-8A2BE2)](https://mariannearriola.github.io/bam-dlms/)
-[![deploy](https://img.shields.io/badge/HuggingFace_🤗%20-BAMDLMs%20-orange)](https://huggingface.co/collections/kuleshov-group/bam-dlm-67be95f81b96b15fec50d53f)
+[![deploy](https://img.shields.io/badge/Blog_📝%20%20-8A2BE2)](https://mariannearriola.github.io/bd3-lms/)
+[![deploy](https://img.shields.io/badge/HuggingFace_🤗%20-BD3LMs%20-orange)](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f)
 
-![graphical_abstract](readme_assets/graphical_abstract.png)
+![graphical_abstract](graphical_abstract.png)
 
-We introduce ***BAM-DLMs***, a family of **B**lock-**A**utoregressive **M**asked **D**iffusion **L**anguage **M**odels that achieve SOTA likelihoods among diffusion models and enable generation of arbitrary-length sequences. BAM-DLMs combine the strengths of autoregressive and diffusion language models by decomposing a token sequence into blocks and performing discrete diffusion within each block. By tuning the block size, we interpolate between autoregressive and diffusion models which introduces a trade-off between quality and sample efficiency. We propose a recipe of building effective BAM-DLMs that includes an efficient training algorithm, estimators of gradient variance, and data-driven noise schedules to minimize the variance.
+We introduce ***BD3-LMs***, a family of **B**lock **D**iscrete **D**enoising **D**iffusion **L**anguage **M**odels that achieve SOTA likelihoods among diffusion models and enable generation of arbitrary-length sequences. BD3-LMs combine the strengths of autoregressive and diffusion language models by decomposing a token sequence into blocks and performing discrete diffusion within each block. By tuning the block size, we interpolate between autoregressive and diffusion models which introduces a trade-off between quality and sample efficiency. We propose a recipe of building effective BD3-LMs that includes an efficient training algorithm, estimators of gradient variance, and data-driven noise schedules to minimize the variance.
 
 <!-- We provide a demo in this [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/) notebook. -->
 
 
 In this repo, we provide:
-* **The BAM-DLM framework**
+* **The BD3-LM framework**
   1. Block-autoregressive likelihood parameterization
   2. Data-driven noise schedules to reduce training variance
   3. Arbitrary-length discrete diffusion samplers
@@ -52,7 +52,7 @@ To get started, create a conda environment containing the required dependencies.
 
 ```bash
 conda env create -f requirements.yaml
-conda activate bamdlm
+conda activate bd3lm
 ```
 
 Create the following directories to store saved models and slurm logs:
@@ -61,13 +61,13 @@ mkdir outputs watch_folder logs sample_logs
 ```
 and run the training as a batch job:
 ```bash
-sbatch scripts/train/train_owt_bamdlm.sh
+sbatch scripts/train/train_owt_bd3lm.sh
 ```
 
 ### Checkpoints
 
-We have uploaded BAM-DLMs trained on OpenWebText using block sizes 4, 8, 16 for 1M training steps to HuggingFace 🤗:
-[kuleshov-group/bam-dlms](https://huggingface.co/collections/kuleshov-group/bam-dlms-67be95f81b96b15fec50d53f) BAM-DLMs are finetuned from an MDLM checkpoint trained on OpenWebText for 850K gradient updates. We release the pretraining checkpoint in this [Google Drive folder](https://drive.google.com/drive/folders/1Vm4YZBX7bzVuHhIbkY1RHTUsf8v71oew?usp=sharing).
+We have uploaded BD3-LMs trained on OpenWebText using block sizes 4, 8, 16 for 1M training steps to HuggingFace 🤗:
+[kuleshov-group/bd3-lms](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f) BD3-LMs are finetuned from an MDLM checkpoint trained on OpenWebText for 850K gradient updates. We release the pretraining checkpoint in this [Google Drive folder](https://drive.google.com/drive/folders/1Vm4YZBX7bzVuHhIbkY1RHTUsf8v71oew?usp=sharing).
 
 
 The MDLM baseline is also found on the HuggingFace:
@@ -84,7 +84,7 @@ We also provide sample `slurm` scripts for launching pre-training and downstream
 
 ### Generate Arbitrary-Length Sequences
 
-To generate arbitrary-length sequences, set `mode=sample_eval`. Example scripts are provided in `scripts/var_len/var_len*.sh`. Here's an example script using BAM-DLM:
+To generate arbitrary-length sequences, set `mode=sample_eval`. Example scripts are provided in `scripts/var_len/var_len*.sh`. Here's an example script using BD3-LM:
 #### HuggingFace model
 ```bash
 BLOCK_SIZE=4 # 4, 8, 16
@@ -93,7 +93,7 @@ LENGTH=2048 # arbitrary; needs to be a multiple of the block size
 python -u main.py \
     loader.eval_batch_size=1 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     algo.T=1000 \
     algo.backbone=hf_dit \
     data=openwebtext-split \
@@ -101,10 +101,10 @@ python -u main.py \
     block_size=$BLOCK_SIZE \
     wandb=null \
     mode=sample_eval \
-    eval.checkpoint_path=kuleshov-group/bamdlm-owt-block_size${BLOCK_SIZE} \
+    eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     model.attn_backend=sdpa \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=sample_logs/samples_genlen_bamdlm_blocksize${BLOCK_SIZE}
+    sampling.logdir=sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
 ```
 
 #### Local checkpoint
@@ -115,17 +115,17 @@ LENGTH=2048 # arbitrary; needs to be a multiple of the block size
 python -u main.py \
     loader.eval_batch_size=1 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     algo.T=1000 \
     data=openwebtext-split \
     model.length=$LENGTH \
     block_size=$BLOCK_SIZE \
     wandb=null \
     mode=sample_eval \
-    eval.checkpoint_path=/path/to/checkpoint/bamdlm-owt-block_size${BLOCK_SIZE} \
+    eval.checkpoint_path=/path/to/checkpoint/bd3lm-owt-block_size${BLOCK_SIZE} \
     model.attn_backend=sdpa \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=sample_logs/samples_genlen_bamdlm_blocksize${BLOCK_SIZE}
+    sampling.logdir=sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
 ```
 
 ### Likelihood Evaluation 
@@ -136,20 +136,20 @@ BLOCK_SIZE=4 # 4, 8, 16
 python -u main.py \
     loader.eval_batch_size=16 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     algo.backbone=hf_dit \
     data=openwebtext-split \
     data.insert_valid_special=False \
     model.length=1024 \
     model.attn_backend=sdpa \
     block_size=${BLOCK_SIZE} \
-    eval.checkpoint_path=kuleshov-group/bamdlm-owt-block_size${BLOCK_SIZE} \
+    eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     wandb=null \
-    mode=ppl_eval > logs/bamdlm_owt_block_size${BLOCK_SIZE}.log
+    mode=ppl_eval > logs/bd3lm_owt_block_size${BLOCK_SIZE}.log
 ```
 
 ### Training Pipeline
-To train BAM-DLM, use `mode=train`. Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
+To train BD3-LMs, use `mode=train`. Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
 ```bash
 BLOCK_SIZE=4 # we recommend 4, 8, or 16. must be a factor of the context length
 PRETRAIN_CKPT=mdlm_pretrain_owt_850k.ckpt # to train from scratch, set to null
@@ -160,16 +160,16 @@ python -u main.py \
     loader.batch_size=8 \
     loader.eval_batch_size=8 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     data=openwebtext-split \
     model.length=1024 \
     block_size=$BLOCK_SIZE \
-    wandb.name=bamdlm-owt-block_size${BLOCK_SIZE} \
+    wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
     mode=train \
     model.attn_backend=sdpa \
     training.from_pretrained=$PRETRAIN_CKPT
 ```
-The arguments `loader.batch_size` and `loader.eval_batch_size` allow you to control the batch size per GPU. If `loader.batch_size * num_gpus` is less than the global_batch_size, PyTorch Lightning will resort to gradient accumulation. You can also launch a training job on Slurm using the command: `sbatch scripts/train/train_owt_bamdlm.sh`.
+The arguments `loader.batch_size` and `loader.eval_batch_size` allow you to control the batch size per GPU. If `loader.batch_size * num_gpus` is less than the global_batch_size, PyTorch Lightning will resort to gradient accumulation. You can also launch a training job on Slurm using the command: `sbatch scripts/train/train_owt_bd3lm.sh`.
 
 ### Acknowledgements
 This repository was built off of [MDLM](https://github.com/kuleshov-group/mdlm) and [SEDD](https://github.com/louaaron/Score-Entropy-Discrete-Diffusion).
