@@ -23,6 +23,4 @@ python -u main.py \
     algo=sedd \
     data=lm1b-wrap \
     model.length=128 \
-    eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-lm1b-sedd128-v2/checkpoints/last.ckpt \
-    wandb.name=sedd-lm1b \
-    mode=train
+    wandb.name=sedd-lm1b

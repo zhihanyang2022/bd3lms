@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH -J ppl_owt_bamdlm                # Job name
+#SBATCH -J varlen_bd3lm                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
 #SBATCH --get-user-env                # retrieve the users login environment
-#SBATCH --mem=32G                  # server memory requested (per node)
+#SBATCH --mem=100000                  # server memory requested (per node)
 #SBATCH -t 960:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=gpu          # Request partition
 #SBATCH --constraint="[a5000|a6000|a100|3090]"
@@ -14,18 +14,26 @@
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 
-BLOCK_SIZE=16
+nvidia-smi
+
+LENGTH=$1
+SEED=$2
+BLOCK_SIZE=$3
 
 srun python -u main.py \
-    loader.eval_batch_size=16 \
+    loader.eval_batch_size=1 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     algo.backbone=hf_dit \
+    algo.T=5000 \
     data=openwebtext-split \
-    data.insert_valid_special=False \
-    model.length=1024 \
-    model.attn_backend=sdpa \
-    block_size=${BLOCK_SIZE} \
-    eval.checkpoint_path=kuleshov-group/bamdlm-owt-block_size${BLOCK_SIZE} \
+    model.length=$LENGTH \
+    block_size=$BLOCK_SIZE \
     wandb=null \
-    mode=ppl_eval > logs/bamdlm_owt_block_size${BLOCK_SIZE}.log
+    mode=sample_eval \
+    eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
+    model.attn_backend=sdpa \
+    seed=$SEED \
+    sampling.nucleus_p=0.9 \
+    sampling.logdir=$PWD/varlen_sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE} \
+    sampling.var_length=true

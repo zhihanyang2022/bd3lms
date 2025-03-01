@@ -21,8 +21,7 @@ python -u main.py \
     loader.eval_batch_size=8 \
     model=small \
     algo=sedd \
-    algo.backbone=dit \
     data=openwebtext-split \
+    +data.insert_valid_eos=False \
     model.length=1024 \
-    wandb.name=sedd-owt \
-    mode=ppl_eval
+    wandb.name=sedd-owt

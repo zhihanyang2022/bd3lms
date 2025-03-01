@@ -1,4 +1,4 @@
-name: bamdlm
+name: bd3lm
 channels:
   - pytorch
   - anaconda

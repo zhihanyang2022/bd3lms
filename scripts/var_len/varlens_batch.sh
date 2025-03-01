@@ -1,11 +1,12 @@
 # batch sampling jobs
 MAX_LEN=131_000 # as in owt
 for SEED in $(seq 1 500); do
-  sbatch ./scripts/var_len/varlen_bamdlm.sh $MAX_LEN $SEED 16
+  sbatch ./scripts/var_len/varlen_bd3lm.sh $MAX_LEN $SEED 16
   sbatch ./scripts/var_len/varlen_ar.sh $MAX_LEN $SEED
   
   # sedd does not support arbitrary-length sampling;
-  # this script records the length of generated samples
+  # this script stops sampling when [EOS] is generated
+  # and records the document length
   sbatch ./scripts/var_len/recordlen_sedd.sh $SEED
 done
 

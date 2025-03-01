@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J ppl_lm1b_bamdlm                # Job name
+#SBATCH -J ppl_lm1b_bd3lm                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -19,11 +19,11 @@ BLOCK_SIZE=4
 srun python -u main.py \
     loader.eval_batch_size=128 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     data=lm1b-wrap \
     model.length=128 \
     block_size=${BLOCK_SIZE} \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/ablation_bs${BLOCK_SIZE}_loglinear_final/last-v1.ckpt \
     wandb=null \
     mode=ppl_eval \
-    model.attn_backend=sdpa > logs/bamdlm_lm1b_wrap_block_size${BLOCK_SIZE}.log
+    model.attn_backend=sdpa > logs/bd3lm_lm1b_wrap_block_size${BLOCK_SIZE}.log

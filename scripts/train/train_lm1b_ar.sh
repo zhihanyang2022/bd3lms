@@ -23,5 +23,4 @@ python -u main.py \
     algo=ar \
     data=lm1b-wrap \
     model.length=128 \
-    wandb=null \
-    mode=train
+    wandb.name=ar-lm1b

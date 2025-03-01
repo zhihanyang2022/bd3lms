@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J train_owt_bamdlm                # Job name
+#SBATCH -J train_owt_bd3lm                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -15,7 +15,7 @@
 #SBATCH --requeue                     # Requeue upon preemption
 
 BLOCK_SIZE=16
-CKPT_PATH=$PWD/mdlm_pretrain_owt_850k.ckpt
+PRETRAIN_CKPT=$PWD/bd3lm_base_owt_850k.ckpt # to train from scratch, set to null
 
 python -u main.py \
     loader.global_batch_size=512 \
@@ -23,11 +23,12 @@ python -u main.py \
     loader.batch_size=8 \
     loader.eval_batch_size=8 \
     model=small \
-    algo=bamdlm \
+    algo=bd3lm \
     data=openwebtext-split \
+    +data.insert_valid_eos=False \
     model.length=1024 \
     block_size=${BLOCK_SIZE} \
-    wandb.name=bamdlm-owt-block_size${BLOCK_SIZE} \
+    wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
     mode=train \
     model.attn_backend=sdpa \
     training.from_pretrained=$PRETRAIN_CKPT

@@ -22,7 +22,6 @@ python -u main.py \
     model=small \
     algo=mdlm \
     data=openwebtext-split \
+    +data.insert_valid_eos=False \
     model.length=1024 \
-    eval.checkpoint_path=kuleshov-group/mdlm-owt \
-    wandb.name=mdlm-owt \
-    mode=train
+    wandb.name=mdlm-owt
