@@ -1,4 +1,4 @@
-"""BAMDLM model for Hugging Face.
+"""BD3LM model for Hugging Face.
 
 """
 import math
@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import transformers
 from transformers import modeling_outputs
 
-from .configuration_bamdlm import BAMDLMConfig
+from .configuration_bd3lm import BD3LMConfig
 
 # Flags required to enable jit fusion kernels
 torch._C._jit_set_profiling_mode(False)
@@ -267,11 +267,14 @@ def regular_attention_multi_headed(qkv):
 
 
 class DDiTBlock(nn.Module):
-  def __init__(self, dim, n_heads, cond_dim, mlp_ratio=4,
+  def __init__(self, n, block_size, dim, n_heads, cond_dim, mlp_ratio=4,
                dropout=0.1, attn_backend='flash_attn'):
     super().__init__()
+    self.n = n
+    self.block_size = block_size
     self.n_heads = n_heads
     self.attn_backend = attn_backend
+    self.kv_cache = None
 
     self.norm1 = LayerNorm(dim)
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
@@ -296,9 +299,17 @@ class DDiTBlock(nn.Module):
     else:
       return bias_dropout_add_scale_fused_inference
   
+  def get_qkv(self, x, rotary_cos_sin, store_kv=False):
+    # compute qkv (potentially use cache)
+    if self.kv_cache is not None:
+      new_qkv = self.attn_qkv(x[:, -self.block_size:])
+      qkv = torch.cat((self.kv_cache, new_qkv), dim=1)
+    else:
+      qkv = self.attn_qkv(x)
+    # store kv cache in a sliding window (can't exceed context len)
+    if store_kv:
+      self.kv_cache = qkv[:, -(self.n-self.block_size):]
 
-  def get_qkv(self, x, rotary_cos_sin):
-    qkv = self.attn_qkv(x)
     qkv = einops.rearrange(
       qkv,
       'b s (three h d) -> b s three h d',
@@ -314,14 +325,7 @@ class DDiTBlock(nn.Module):
           qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
     return qkv
 
-  def cross_attn(self, x, rotary_cos_sin, cross_attn_mask=None):
-    if cross_attn_mask is not None:
-      n = x.shape[1] // 2
-      qkv_x = self.get_qkv(x[:,:n], rotary_cos_sin)
-      qkv_x0 = self.get_qkv(x[:,n:], rotary_cos_sin)
-      qkv = torch.cat((qkv_x, qkv_x0), dim=1)
-    else:
-      qkv = self.get_qkv(x, rotary_cos_sin)
+  def cross_attn(self, x, qkv, cross_attn_mask=None):
     scale = qkv.shape[-1]
     qkv = qkv.transpose(1, 3)
     attn_dropout = self.attn_dropout if self.training else 0.0
@@ -338,7 +342,8 @@ class DDiTBlock(nn.Module):
     x = einops.rearrange(x, 'b s h d -> b s (h d)')
     return x
 
-  def forward(self, x, rotary_cos_sin, c, cross_attn_mask=None):
+  def forward(self, x, rotary_cos_sin, c, cross_attn_mask=None,
+              sample_mode=False, store_kv=False):
     bias_dropout_scale_fn = self._get_bias_dropout_scale()
 
     (shift_msa, scale_msa, gate_msa, shift_mlp,
@@ -348,11 +353,18 @@ class DDiTBlock(nn.Module):
     x_skip = x
     x = modulate_fused(self.norm1(x), shift_msa, scale_msa)
 
+    # get qkvs
+    if cross_attn_mask is not None and not sample_mode:
+      qkv_x = self.get_qkv(x[:,:self.n], rotary_cos_sin)
+      qkv_x0 = self.get_qkv(x[:,self.n:], rotary_cos_sin)
+      qkv = torch.cat((qkv_x, qkv_x0), dim=1)
+    else:
+      qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
+
     if cross_attn_mask is None and self.attn_backend == 'flash_attn':
-      qkv = self.attn_qkv(x)
       x = regular_attention_multi_headed(qkv)
     else:
-      x = self.cross_attn(x, rotary_cos_sin, cross_attn_mask=cross_attn_mask)
+      x = self.cross_attn(x, qkv, cross_attn_mask=cross_attn_mask)
 
     x = bias_dropout_scale_fn(self.attn_out(x),
                               None,
@@ -403,13 +415,14 @@ class DDitFinalLayer(nn.Module):
 class DITBackbone(nn.Module):
   def __init__(
       self,
-      config: BAMDLMConfig):
+      config: BD3LMConfig):
     super().__init__()
 
     self.config = config
     self.cross_attn = config.cross_attn
     self.block_size = config.block_size
     self.vocab_size = config.vocab_size
+    self.n = config.model_length
 
     self.vocab_embed = EmbeddingLayer(
       config.hidden_dim,
@@ -421,7 +434,9 @@ class DITBackbone(nn.Module):
 
     blocks = []
     for _ in range(config.n_blocks):
-      blocks.append(DDiTBlock(config.hidden_dim,
+      blocks.append(DDiTBlock(self.n,
+                              self.block_size,
+                              config.hidden_dim,
                               config.n_heads,
                               config.cond_dim,
                               dropout=config.dropout,
@@ -440,7 +455,7 @@ class DITBackbone(nn.Module):
     if self.training:
       return bias_dropout_add_scale_fused_train
     else:
-      return  bias_dropout_add_scale_fused_inference
+      return bias_dropout_add_scale_fused_inference
     
   def gen_mask(self, seqlen, block_size):
     self_attn_mask = block_causal_mask(seqlen, block_size, mode='diag')
@@ -452,9 +467,8 @@ class DITBackbone(nn.Module):
     x0_attn_mask = torch.cat((torch.zeros_like(self_attn_mask), x0_attn_mask), dim=1)
     self.cross_attn_mask = torch.cat((cross_attn_mask, x0_attn_mask), dim=0)
 
-  def forward(self, indices, sigma, disable_cross_attn=False,
-              output_hidden_states=False):
-    cross_attn = self.cross_attn and not disable_cross_attn
+  def forward(self, indices, sigma, sample_mode=False,
+             store_kv=False, output_hidden_states=False):
     if not self.config.time_conditioning:
       sigma = torch.zeros_like(sigma)
     all_hidden_states = []
@@ -462,34 +476,41 @@ class DITBackbone(nn.Module):
     if output_hidden_states:
       all_hidden_states.append(x)
     c = F.silu(self.sigma_map(sigma))
-    if cross_attn:
+    if self.cross_attn:
+      rotary_cos_sin = self.rotary_emb(x[:, :self.n])
       cross_attn_mask = self.cross_attn_mask.to(x.device)
-      n = x.shape[1] // 2
-      rotary_cos_sin = self.rotary_emb(x[:, :n])
+      # use block-causal mask only during sampling
+      if sample_mode:
+        cross_attn_mask = cross_attn_mask[
+          self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
     else:
       cross_attn_mask = None
       rotary_cos_sin = self.rotary_emb(x)
 
     with torch.cuda.amp.autocast(dtype=self.precision):
       for i in range(len(self.blocks)):
-        x = self.blocks[i](x, rotary_cos_sin, c,
-                           cross_attn_mask=cross_attn_mask,)
+        x = self.blocks[i](x, 
+                           rotary_cos_sin,
+                           c,
+                           cross_attn_mask=cross_attn_mask,
+                           sample_mode=sample_mode,
+                           store_kv=store_kv)
         if output_hidden_states:
           all_hidden_states.append(x)
       logits = self.output_layer(x, c)
-    if cross_attn:
-      logits = logits[:, :n]
-      all_hidden_states = [hidden_states[:, :n] for hidden_states in all_hidden_states]
+    if self.cross_attn and not sample_mode:
+      logits = logits[:, :self.n]
+      all_hidden_states = [hidden_states[:, :self.n] for hidden_states in all_hidden_states]
     return logits, all_hidden_states
 
-class BAMDLM(transformers.PreTrainedModel):
+class BD3LM(transformers.PreTrainedModel):
   """HF-compatible model."""
-  config_class = BAMDLMConfig
-  base_model_prefix = "bamdlm"
+  config_class = BD3LMConfig
+  base_model_prefix = "bd3lm"
 
   def __init__(
     self,
-    config: BAMDLMConfig):
+    config: BD3LMConfig):
     super().__init__(config)
     self.backbone = DITBackbone(config)
     if config.var_min:
@@ -500,11 +521,16 @@ class BAMDLM(transformers.PreTrainedModel):
         'sampling_eps_max',
         torch.tensor(config.sampling_eps_max))
 
+  def reset_kv_cache(self):
+    for block in self.backbone.blocks:
+      block.kv_cache = None
+
   def forward(
       self,
       input_ids: torch.LongTensor = None,
       timesteps: torch.FloatTensor = None,
-      disable_cross_attn: typing.Optional[bool] = None,
+      sample_mode: typing.Optional[bool] = None,
+      store_kv: typing.Optional[bool] = None,
       output_hidden_states: typing.Optional[bool] = None,
       return_dict: typing.Optional[bool] = None,
   ) -> typing.Union[
@@ -523,8 +549,9 @@ class BAMDLM(transformers.PreTrainedModel):
     logits, all_hidden_states = self.backbone(
       indices=input_ids,
       sigma=timesteps,
-      disable_cross_attn=disable_cross_attn,
-      output_hidden_states=output_hidden_states
+      sample_mode=sample_mode,
+      store_kv=store_kv,
+      output_hidden_states=output_hidden_states,
     )
     if return_dict:
       return modeling_outputs.MaskedLMOutput(

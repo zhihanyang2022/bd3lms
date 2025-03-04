@@ -88,9 +88,8 @@ def generate_samples(config, logger, tokenizer):
   if config.eval.disable_ema:
     logger.info('Disabling EMA.')
     model.ema = None
-  for _ in range(config.sampling.num_sample_batches):
-    text_samples = model.restore_model_and_sample(
-      num_steps=config.algo.T)
+  text_samples = model.restore_model_and_sample(
+    num_steps=config.algo.T)
   print('Text samples:', text_samples)
   print('Generative perplexity:',
         model.metrics.gen_ppl.compute())
@@ -100,11 +99,11 @@ def generate_samples(config, logger, tokenizer):
                 'gen_nfes': model.metrics.gen_nfes,
                 'gen_entropy': model.metrics.gen_entropies,
                 'gen_lengths': model.metrics.gen_lengths,
-                'samples': text_samples,
-                'seed': config.seed}
+                'samples': [[i] for i in text_samples],
+                'seed': [config.seed for _ in range(len(text_samples))]}
   if config.sampling.var_length:
     print(text_samples)
-    save_dict['samples'] = ''
+    save_dict['samples'] = ['' for _ in range(len(text_samples))]
   utils.update_and_save_csv(save_dict, csv_path)
   return text_samples
 

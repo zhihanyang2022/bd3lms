@@ -258,9 +258,11 @@ class LabelEmbedder(nn.Module):
 #################################################################################
 
 class DDiTBlockCausal(nn.Module):
-  def __init__(self, dim, n_heads, mlp_ratio=4, dropout=0.1, max_batch_size=64, max_seqlen=0, adaLN=False, cond_dim=None, attn_backend='flash_attn', attn_dropout=0.0):
+  def __init__(self, n, dim, n_heads, mlp_ratio=4, dropout=0.1, max_batch_size=64, max_seqlen=1024, adaLN=False, cond_dim=None, attn_backend='flash_attn', attn_dropout=0.0):
     super().__init__()
     self.n_heads = n_heads
+    self.max_seqlen = max_seqlen
+    self.n = n
 
     self.norm1 = LayerNorm(dim)
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
@@ -281,6 +283,7 @@ class DDiTBlockCausal(nn.Module):
       self.adaLN_modulation.weight.data.zero_()
       self.adaLN_modulation.bias.data.zero_()
     self.attn_backend = attn_backend
+    self.kv_cache = None
 
   def _get_bias_dropout_scale(self):
     if self.training:
@@ -288,8 +291,17 @@ class DDiTBlockCausal(nn.Module):
     else:
       return bias_dropout_add_scale_fused_inference
 
-  def get_qkv(self, x, rotary_cos_sin):
-    qkv = self.attn_qkv(x)
+  def get_qkv(self, x, rotary_cos_sin, store_kv=False):
+    # compute qkv (potentially use cache)
+    if self.kv_cache is not None:
+      new_qkv = self.attn_qkv(x[:, -1:])
+      qkv = torch.cat((self.kv_cache, new_qkv), dim=1)
+    else:
+      qkv = self.attn_qkv(x)
+    # store kv cache in a sliding window (can't exceed context len)
+    if store_kv:
+      self.kv_cache = qkv[:, -(self.max_seqlen-1):].clone()
+      
     qkv = einops.rearrange(
       qkv,
       'b s (three h d) -> b s three h d',
@@ -303,15 +315,10 @@ class DDiTBlockCausal(nn.Module):
       else:
         qkv = apply_rotary_pos_emb_torchscript(
           qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
+          
     return qkv
 
-  def cross_attn(self, x, rotary_cos_sin, cross_attn_mask=None):
-    if cross_attn_mask is not None:
-      qkv_x = self.get_qkv(x[:,:self.n], rotary_cos_sin)
-      qkv_x0 = self.get_qkv(x[:,self.n:], rotary_cos_sin)
-      qkv = torch.cat((qkv_x, qkv_x0), dim=1)
-    else:
-      qkv = self.get_qkv(x, rotary_cos_sin)
+  def cross_attn(self, x, qkv, cross_attn_mask=None):
     scale = qkv.shape[-1]
     qkv = qkv.transpose(1, 3)
     attn_dropout = self.attn_dropout if self.training else 0.0
@@ -322,13 +329,20 @@ class DDiTBlockCausal(nn.Module):
       value=qkv[:, :, 2],
       attn_mask=cross_attn_mask,
       dropout_p=attn_dropout,
-      is_causal=False,
+      is_causal=True,
       scale=1 / math.sqrt(scale))
     x = x.transpose(1, 2)
     x = rearrange(x, 'b s h d -> b s (h d)')
     return x
 
-  def forward(self, x, rotary_cos_sin, cross_attn_mask=None, c=None, **kwargs):
+  def forward(self,
+              x,
+              rotary_cos_sin,
+              c=None,
+              causal=True,
+              cross_attn_mask=None,
+              store_kv=False,
+              **kwargs):
     del kwargs
     batch_size, seq_len = x.shape[0], x.shape[1]
     shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = None, None, None, None, None, None
@@ -349,8 +363,8 @@ class DDiTBlockCausal(nn.Module):
     else:
       x = self.norm1(x)
     
+    qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
     if self.attn_backend == 'flash_attn':
-      qkv = self.get_qkv(x, rotary_cos_sin)
       qkv = einops.rearrange(qkv, 'b s ... -> (b s) ...')
       cu_seqlens = torch.arange(
         0, (batch_size + 1) * seq_len,
@@ -359,7 +373,7 @@ class DDiTBlockCausal(nn.Module):
         qkv, cu_seqlens, seq_len, 0.0, causal=True)
       x = einops.rearrange(x, '(b s) h d -> b s (h d)', b=batch_size)
     else:
-      x = self.cross_attn(x, rotary_cos_sin, c)
+      x = self.cross_attn(x, qkv, c)
       
     if c is not None:
       x = bias_dropout_scale_fn(self.attn_out(x),
@@ -386,8 +400,10 @@ class DDiTBlock(nn.Module):
                latent_dim=None, cond_dim=None,
                latent_conditioning=-1, mlp_ratio=4,
                dropout=0.1, block_size=1, attn_dropout=0.0,
-               max_batch_size=64, max_seqlen=0, attn_backend='flash_attn'):
+               max_batch_size=64, max_seqlen=1024, attn_backend='flash_attn'):
     super().__init__()
+    self.max_seqlen = max_seqlen
+    self.n = n
     self.n_heads = n_heads
     self.adaLN = adaLN
     self.latent_conditioning = latent_conditioning
@@ -398,7 +414,6 @@ class DDiTBlock(nn.Module):
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
     self.attn_out = nn.Linear(dim, dim, bias=False)
     self.dropout1 = nn.Dropout(dropout)
-    self.n = n
 
     self.norm2 = LayerNorm(dim)
     self.mlp = nn.Sequential(
@@ -407,6 +422,7 @@ class DDiTBlock(nn.Module):
       nn.Linear(mlp_ratio * dim, dim, bias=True))
     self.dropout2 = nn.Dropout(dropout)
     self.dropout = dropout
+    self.kv_cache = None
 
     if self.adaLN:
       self.adaLN_modulation = nn.Linear(cond_dim, 6 * dim)
@@ -420,8 +436,17 @@ class DDiTBlock(nn.Module):
     else:
       return bias_dropout_add_scale_fused_inference
 
-  def get_qkv(self, x, rotary_cos_sin):
-    qkv = self.attn_qkv(x)
+  def get_qkv(self, x, rotary_cos_sin, store_kv=False):
+    # compute qkv (potentially use cache)
+    if self.kv_cache is not None:
+      new_qkv = self.attn_qkv(x[:, -self.max_seqlen:])
+      qkv = torch.cat((self.kv_cache, new_qkv), dim=1)
+    else:
+      qkv = self.attn_qkv(x)
+    # store kv cache in a sliding window (can't exceed context len)
+    if store_kv:
+      self.kv_cache = qkv[:, -(self.max_seqlen-self.block_size):].clone()
+      
     qkv = einops.rearrange(
       qkv,
       'b s (three h d) -> b s three h d',
@@ -436,8 +461,8 @@ class DDiTBlock(nn.Module):
         qkv = apply_rotary_pos_emb_torchscript(
           qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
     return qkv
-
-  def attn_mlp(self, x, c, gate_msa, shift_msa, scale_msa, gate_mlp, shift_mlp, scale_mlp, x_skip):
+  
+  def attn_mlp(self, x, c, gate_msa, gate_mlp, shift_mlp, scale_mlp, x_skip):
     bias_dropout_scale_fn = self._get_bias_dropout_scale()
     if c is not None:
       x = bias_dropout_scale_fn(self.attn_out(x),
@@ -458,13 +483,7 @@ class DDiTBlock(nn.Module):
         self.mlp(self.norm2(x)), None, scale, x, self.dropout)
     return x
 
-  def cross_attn(self, x, rotary_cos_sin, cross_attn_mask=None):
-    if cross_attn_mask is not None:
-      qkv_x = self.get_qkv(x[:,:self.n], rotary_cos_sin)
-      qkv_x0 = self.get_qkv(x[:,self.n:], rotary_cos_sin)
-      qkv = torch.cat((qkv_x, qkv_x0), dim=1)
-    else:
-      qkv = self.get_qkv(x, rotary_cos_sin)
+  def cross_attn(self, x, qkv, cross_attn_mask=None):
     scale = qkv.shape[-1]
     qkv = qkv.transpose(1, 3)
     attn_dropout = self.attn_dropout if self.training else 0.0
@@ -486,7 +505,9 @@ class DDiTBlock(nn.Module):
               rotary_cos_sin,
               c,
               causal=False,
-              cross_attn_mask=None):
+              cross_attn_mask=None,
+              sample_mode=False,
+              store_kv=False,):
     batch_size, seq_len = x.shape[0], x.shape[1]
 
     shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = None, None, None, None, None, None
@@ -505,18 +526,26 @@ class DDiTBlock(nn.Module):
       x = modulate_fused(self.norm1(x), shift_msa, scale_msa)
     else:
       x = self.norm1(x)
+
+    # get qkvs
+    if cross_attn_mask is not None and not sample_mode:
+      qkv_x = self.get_qkv(x[:,:self.n], rotary_cos_sin)
+      qkv_x0 = self.get_qkv(x[:,self.n:], rotary_cos_sin)
+      qkv = torch.cat((qkv_x, qkv_x0), dim=1)
+    else:
+      qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
+
     if self.attn_backend == 'flash_attn' and cross_attn_mask is None:
-      qkv = self.get_qkv(x, rotary_cos_sin)
+      qkv = einops.rearrange(qkv, 'b s ... -> (b s) ...')
       cu_seqlens = torch.arange(
         0, (batch_size + 1) * seq_len, step=seq_len,
         dtype=torch.int32, device=qkv.device)
-      qkv = rearrange(qkv, 'b s ... -> (b s) ...')
       x = flash_attn.flash_attn_interface.flash_attn_varlen_qkvpacked_func(
         qkv, cu_seqlens, seq_len, 0., causal=causal)
       x = rearrange(x, '(b s) h d -> b s (h d)', b=batch_size)     
     else:
-      x = self.cross_attn(x, rotary_cos_sin, cross_attn_mask=cross_attn_mask)
-    x = self.attn_mlp(x, c, gate_msa, shift_msa, scale_msa, gate_mlp, shift_mlp, scale_mlp, x_skip)
+      x = self.cross_attn(x, qkv, cross_attn_mask=cross_attn_mask)
+    x = self.attn_mlp(x, c, gate_msa, gate_mlp, shift_mlp, scale_mlp, x_skip)
     return x
    
 class EmbeddingLayer(nn.Module):
@@ -585,11 +614,11 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     for _ in range(config.model.n_blocks):
       if self.causal:
         block = DDiTBlockCausal(
+          n=config.model.length,
           dim=dim,
           n_heads=config.model.n_heads,
           dropout=config.model.dropout,
           max_batch_size=config.loader.eval_batch_size,
-          max_seqlen=config.model.length,
           adaLN=self.adaLN,
           cond_dim=cond_dim,
           attn_backend=self.attn_backend,
@@ -627,21 +656,28 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     x0_attn_mask = block_causal_mask(seqlen, block_size, mode='full')
     cross_attn_mask = x0_attn_mask.clone()
     cross_attn_mask.masked_fill_(self_attn_mask == 1, 0)
-
     cross_attn_mask = torch.cat((self_attn_mask, cross_attn_mask), dim=1)
     x0_attn_mask = torch.cat((torch.zeros_like(self_attn_mask), x0_attn_mask), dim=1)
     self.cross_attn_mask = torch.cat((cross_attn_mask, x0_attn_mask), dim=0)
 
-  def forward(self, indices, sigma, disable_cross_attn=False):
+  def reset_kv_cache(self):
+    for block in self.blocks:
+      block.kv_cache = None
+
+  def forward(self, indices, sigma, sample_mode=False, store_kv=False):
     x = self.vocab_embed(indices)
     if sigma is None:
       t_cond = None
     else:
       t_cond = F.silu(self.sigma_map(sigma))
-    cross_attn = hasattr(self, 'cross_attn_mask') and not disable_cross_attn
+    cross_attn = hasattr(self, 'cross_attn_mask')
     if cross_attn:
       rotary_cos_sin = self.rotary_emb(x[:, :self.n])
       cross_attn_mask = self.cross_attn_mask.to(x.device)
+      # use block-causal mask only
+      if sample_mode:
+        cross_attn_mask = cross_attn_mask[
+          self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
     else:
       rotary_cos_sin = self.rotary_emb(x)
       cross_attn_mask = None
@@ -652,8 +688,10 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
           rotary_cos_sin,
           c=t_cond,
           causal=self.causal,
-          cross_attn_mask=cross_attn_mask)
+          sample_mode=sample_mode,
+          cross_attn_mask=cross_attn_mask,
+          store_kv=store_kv)
       x = self.output_layer(x, t_cond)
-    if cross_attn:
+    if cross_attn and not sample_mode:
       x = x[:, :self.n]
     return x

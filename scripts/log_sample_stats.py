@@ -10,13 +10,13 @@ for fname in os.listdir(dir_name):
     fieldnames = ['gen_ppl', 'nfes', 'entropy', 'gen_lengths', 'samples', 'seed']
     reader = csv.DictReader(f, fieldnames=fieldnames)
     rows = list(reader)
-    gen_ppl = [float(eval(row['gen_ppl'])[0]) for row in rows if row['gen_ppl'] != '[nan]']
+    gen_ppl = [float(eval(row['gen_ppl'])) for row in rows if row['gen_ppl'] != '[nan]']
     try:
-      nfes = [float(eval(row['nfes'])[0]) for row in rows]
+      nfes = [float(eval(row['nfes'])) for row in rows]
     except:
       nfes = [0 for row in rows]
-    entropy = [float(eval(row['entropy'])[0]) for row in rows]
-    gen_lengths = [float(eval(row['gen_lengths'])[0]) for row in rows]
+    entropy = [float(eval(row['entropy'])) for row in rows]
+    gen_lengths = [float(eval(row['gen_lengths'])) for row in rows]
 
     print(f'{fname}:')
     print(f'Average over {len(gen_ppl)} samples\n')

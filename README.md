@@ -149,10 +149,10 @@ python -u main.py \
 ```
 
 ### Training Pipeline
-To train BD3-LMs, use `mode=train`. Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
+To train BD3-LMs, use `mode=train` (default mode). Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
 ```bash
 BLOCK_SIZE=4 # we recommend 4, 8, or 16. must be a factor of the context length
-PRETRAIN_CKPT=mdlm_pretrain_owt_850k.ckpt # to train from scratch, set to null
+PRETRAIN_CKPT=bd3lm_base_owt_850k.ckpt # to train from scratch, set to null
 
 python -u main.py \
     loader.global_batch_size=512 \

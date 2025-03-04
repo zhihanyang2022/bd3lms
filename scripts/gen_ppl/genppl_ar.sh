@@ -28,4 +28,5 @@ srun python -u -m main \
     +wandb.offline=true \
     seed=$SEED \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=$PWD/sample_logs/samples_ar_len${LENGTH}
+    sampling.logdir=$PWD/sample_logs/samples_ar_len${LENGTH} \
+    sampling.kv_cache=true

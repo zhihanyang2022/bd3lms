@@ -18,7 +18,7 @@ LENGTH=$1
 SEED=$2
 
 # use model trained w/o eos for variable-length generation
-srun python -u -m main \
+srun python -su -m main \
     mode=sample_eval \
     loader.eval_batch_size=1 \
     data=openwebtext-split \
@@ -28,5 +28,6 @@ srun python -u -m main \
     +wandb.offline=true \
     seed=$SEED \
     sampling.nucleus_p=0.9 \
+    sampling.num_sample_batches=1 \
     sampling.logdir=$PWD/sample_logs/samples_ar \
     sampling.var_length=true

@@ -14,22 +14,4 @@
 #SBATCH --open-mode=append                     # Do not overwrite logs
 #SBATCH --requeue                              # Requeue upon preemption
 
-# for s in $(seq 1 10); do sbatch --job-name="ssdlm_generate_seed-${s}" run_generate_text.sh ${s}; done
-
-# source /share/kuleshov/yzs2/text-diffusion/setup_env.sh
-
-SEED=${1}
-LEN=${2} # 1025, 2050
-TOTAL_T=${3} # 1000, 25
-
-srun python generate_text.py \
-  --generated_samples_outfile="${PWD}/generated_samples/samples_openwebtext-valid_bs25_l${LEN}_t${TOTAL_T}_SEED${SEED}" \
-  --num_samples_to_generate=1 \
-  --seed=${SEED} \
-  --model_name_or_path="xhan77/ssdlm" \
-  --use_slow_tokenizer=True \
-  --max_seq_length=${LEN} \
-  --one_hot_value=5 \
-  --decoding_block_size=25 \
-  --total_t=${TOTAL_T} \
-  --projection_top_p=0.95
+srun python report_genppl.py

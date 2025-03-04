@@ -1,4 +1,4 @@
-name: bamdlm
+name: bd3lm
 backbone: dit  # dit / dimamba / hf_dit
 parameterization: subs
 time_conditioning: False

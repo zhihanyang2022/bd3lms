@@ -2,5 +2,5 @@
 
 """
 
-from .configuration_bamdlm import BAMDLMConfig
-from .modeling_bamdlm import BAMDLM
+from .configuration_bd3lm import BD3LMConfig
+from .modeling_bd3lm import BD3LM

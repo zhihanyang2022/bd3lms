@@ -1,13 +1,13 @@
-"""BAMDLM config for Hugging Face.
+"""BD3LM config for Hugging Face.
 
 """
 
 import transformers
 
 
-class BAMDLMConfig(transformers.PretrainedConfig):
-  """Hugging Face configuration class for BAMDLM."""
-  model_type = "bamdlm"
+class BD3LMConfig(transformers.PretrainedConfig):
+  """Hugging Face configuration class for BD3LM."""
+  model_type = "bd3lm"
 
   def __init__(
     self,

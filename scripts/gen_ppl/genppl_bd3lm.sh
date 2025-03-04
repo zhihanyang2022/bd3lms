@@ -33,4 +33,5 @@ srun python -u main.py \
     model.attn_backend=sdpa \
     seed=$SEED \
     sampling.nucleus_p=0.9 \
+    sampling.kv_cache=true \
     sampling.logdir=$PWD/sample_logs/samples_bd3lm_len${LENGTH}_blocksize${BLOCK_SIZE}

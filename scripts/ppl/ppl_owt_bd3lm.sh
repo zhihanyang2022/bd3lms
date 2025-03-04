@@ -14,7 +14,7 @@
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon preemption
 
-BLOCK_SIZE=16
+BLOCK_SIZE=4
 
 srun python -u main.py \
     loader.eval_batch_size=16 \

@@ -26,10 +26,12 @@ loader:
 
 sampling:
   noise_removal: False
-  num_sample_batches: 1  # Total samples: `num_gpus` * `loader.eval_batch_size` * num_sample_batches
+  num_sample_batches: 25  # Total samples: `num_gpus` * `loader.eval_batch_size` * num_sample_batches
   var_length: False
   logdir: ./samples_${algo.name}_len${model.length}_blocksize${block_size}
   nucleus_p: 1.0
+  first_hitting: True # should be set to true when T >> block_size
+  kv_cache: False
 
 training:
   ema: 0.9999
@@ -40,6 +42,7 @@ training:
   sampling_eps_min: 1e-3
   sampling_eps_max: 1.0
   from_pretrained: null
+  eval_nll: True # always evaluate nll if block size is 1
 
 eval:
   checkpoint_path: ${cwd:}/checkpoints/last.ckpt  # Used to evaluate a checkpoint after training.
@@ -66,10 +69,10 @@ trainer:
   precision: 'bf16'
   num_sanity_val_steps: 2
   max_steps: 1_000_000
-  log_every_n_steps: 10
+  log_every_n_steps: 1_000
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run
   limit_val_batches: 1.0     # validate on full dataset, can be used to toggle quick run
-  val_check_interval: 5000
+  val_check_interval: 10_000
 
 wandb:
   project: BAM-DLMs
