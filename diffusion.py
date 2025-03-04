@@ -948,7 +948,7 @@ class Diffusion(L.LightningModule):
                                   device=self.device)
     x = self._denoiser_update(x=x, t=t)
     
-    stop, x = self._check_stop_conds(x, torch.ones_like(x).to(torch.float64))
+    stop, x = self._check_stop_conds(x)
     if stop:
       return None
     return x
