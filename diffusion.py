@@ -611,11 +611,13 @@ class Diffusion(L.LightningModule):
         next_logits = next_logits.exp()
         next_logits = self._nucleus_sample(next_logits).log()
         y = (next_logits[:, -1] + noise).argmax(-1)
+        # check if we need to resample (or stop sampling for variable-length sampling)
         if (i+1) > 256:
           stop, x_out = self._check_stop_conds(x[:, :i+1])
           if stop:
             x = x_out
-        if stop and not self.config.sampling.var_length:
+        if (stop and not self.config.sampling.var_length) \
+          or (stop and x.shape[-1] == 1):
           return None
         elif stop:
           break
@@ -1022,7 +1024,8 @@ class Diffusion(L.LightningModule):
       # check if we need to resample (or stop sampling for variable-length sampling)
       if x_accum.shape[1] > 256:
         stop, x_accum = self._check_stop_conds(x_accum)
-        if stop and not self.config.sampling.var_length:
+        if (stop and not self.config.sampling.var_length) \
+          or (stop and x.shape[-1] == 1):
           return None, None
         elif stop:
           break
