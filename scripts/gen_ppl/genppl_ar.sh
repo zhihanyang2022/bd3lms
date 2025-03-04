@@ -25,7 +25,7 @@ srun python -u -m main \
     algo=ar \
     model.length=$LENGTH \
     eval.checkpoint_path=$PWD/ar_owt_noeos.ckpt \
-    +wandb.offline=true \
+    wandb=null \
     seed=$SEED \
     sampling.num_sample_batches=25 \
     sampling.nucleus_p=0.9 \

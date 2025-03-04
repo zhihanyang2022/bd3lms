@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J train_lm1b_ar                # Job name
+#SBATCH -J train_owt_ar                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested

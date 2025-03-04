@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J train_owt_bamdlm                # Job name
+#SBATCH -J recordlen_sedd                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
 #SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -24,7 +24,7 @@ srun python -u -m main \
     algo.T=1000 \
     model.length=1024 \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-owt-sedd-noeos-v4/61-1000000.ckpt \
-    +wandb.offline=true \
+    wandb=null \
     sampling.var_length=true \
     seed=$SEED \
     sampling.nucleus_p=0.99 \
