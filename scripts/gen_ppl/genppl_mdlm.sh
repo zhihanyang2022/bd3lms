@@ -27,7 +27,8 @@ srun python -u -m main \
     block_size=1024 \
     model.length=$LENGTH \
     eval.checkpoint_path=$PWD/mdlm_owt_noeos.ckpt \
-    +wandb.offline=true \
+    wandb=null \
     seed=$SEED \
+    sampling.num_sample_batches=25 \
     sampling.nucleus_p=0.9 \
     sampling.logdir=$PWD/sample_logs/samples_mdlm_len${LENGTH}

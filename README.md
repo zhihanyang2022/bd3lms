@@ -104,7 +104,8 @@ python -u main.py \
     eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     model.attn_backend=sdpa \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
+    sampling.kv_cache=true \
+    sampling.logdir=$PWD/sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
 ```
 
 #### Local checkpoint
@@ -125,7 +126,8 @@ python -u main.py \
     eval.checkpoint_path=/path/to/checkpoint/bd3lm-owt-block_size${BLOCK_SIZE} \
     model.attn_backend=sdpa \
     sampling.nucleus_p=0.9 \
-    sampling.logdir=sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
+    sampling.kv_cache=true \
+    sampling.logdir=$PWD/sample_logs/samples_genlen_bd3lm_blocksize${BLOCK_SIZE}
 ```
 
 ### Likelihood Evaluation 
@@ -152,7 +154,7 @@ python -u main.py \
 To train BD3-LMs, use `mode=train` (default mode). Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
 ```bash
 BLOCK_SIZE=4 # we recommend 4, 8, or 16. must be a factor of the context length
-PRETRAIN_CKPT=bd3lm_base_owt_850k.ckpt # to train from scratch, set to null
+PRETRAIN_CKPT=$PWD/bd3lm_base_owt_850k.ckpt # to train from scratch, set to null
 
 python -u main.py \
     loader.global_batch_size=512 \
@@ -177,9 +179,9 @@ This repository was built off of [MDLM](https://github.com/kuleshov-group/mdlm) 
 ## Citation
 ```
 @inproceedings{
-  arriola2025interpolating,
-  title={Interpolating Autoregressive and Discrete Denoising Diffusion Language Models},
-  author={Marianne Arriola and Aaron Gokaslan and Justin T Chiu and Jiaqi Han and Zhihan Yang and Zhixuan Qi and Subham Sekhar Sahoo and Volodymyr Kuleshov},
+  arriola2025block,
+  title={Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models},
+  author={Marianne Arriola and Subham Sekhar Sahoo and Aaron Gokaslan and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Justin T Chiu and Volodymyr Kuleshov},
   booktitle={The Thirteenth International Conference on Learning Representations},
   year={2025},
   url={https://openreview.net/forum?id=tyEyYT267x}

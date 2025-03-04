@@ -47,5 +47,5 @@ for data in "${datasets[@]}"; do
         model.length=1024 \
         eval.checkpoint_path=/share/kuleshov/ssahoo/textdiffusion/text-diffusion-exp-v4-nBm2gE-small-param-sedd_data-openwebtext-split_seqlen-1024_maxs-1300001_bs-512/checkpoints/last.ckpt \
         wandb=null \
-        mode=ppl_eval > logs/sedd_$data.log
+        mode=ppl_eval > $PWD/logs/sedd_$data.log
 done

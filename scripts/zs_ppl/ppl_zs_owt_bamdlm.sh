@@ -52,5 +52,5 @@ for data in "${datasets[@]}"; do
         eval.checkpoint_path=kuleshov-group/bamdlm-owt-block_size${BLOCK_SIZE} \
         wandb=null \
         mode=ppl_eval \
-        model.attn_backend=sdpa > logs/bamdlm_${data}_block_size${BLOCK_SIZE}.log
+        model.attn_backend=sdpa > $PWD/logs/bamdlm_${data}_block_size${BLOCK_SIZE}.log
 done

@@ -26,4 +26,4 @@ srun python -u main.py \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/ablation_bs${BLOCK_SIZE}_loglinear_final/last-v1.ckpt \
     wandb=null \
     mode=ppl_eval \
-    model.attn_backend=sdpa > logs/bd3lm_lm1b_wrap_block_size${BLOCK_SIZE}.log
+    model.attn_backend=sdpa > $PWD/logs/bd3lm_lm1b_wrap_block_size${BLOCK_SIZE}.log

@@ -24,4 +24,4 @@ srun python -u main.py \
     model.length=128 \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/runs/lm1b_wrap_ar/checkpoints/last.ckpt \
     wandb=null \
-    mode=ppl_eval > logs/ar_lm1b_wrap.log
+    mode=ppl_eval > $PWD/logs/ar_lm1b_wrap.log

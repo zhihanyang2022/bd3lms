@@ -32,6 +32,7 @@ srun python -u main.py \
     eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     model.attn_backend=sdpa \
     seed=$SEED \
+    sampling.num_sample_batches=25 \
     sampling.nucleus_p=0.9 \
     sampling.kv_cache=true \
     sampling.logdir=$PWD/sample_logs/samples_bd3lm_len${LENGTH}_blocksize${BLOCK_SIZE}

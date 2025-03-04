@@ -26,5 +26,6 @@ srun python -u -m main \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-owt-sedd-noeos-v4/last.ckpt \
     +wandb.offline=true \
     seed=$SEED \
+    sampling.num_sample_batches=25 \
     sampling.logdir=$PWD/sample_logs/samples_sedd_len1024 \
     sampling.nucleus_p=0.99

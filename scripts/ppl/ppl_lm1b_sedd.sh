@@ -23,4 +23,4 @@ srun python -u main.py \
     model.length=128 \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-lm1b-sedd128-v2/checkpoints/last.ckpt \
     wandb=null \
-    mode=ppl_eval > logs/sedd_lm1b_wrap.log
+    mode=ppl_eval > $PWD/logs/sedd_lm1b_wrap.log

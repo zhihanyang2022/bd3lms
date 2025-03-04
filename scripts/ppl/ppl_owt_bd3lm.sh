@@ -28,4 +28,4 @@ srun python -u main.py \
     block_size=${BLOCK_SIZE} \
     eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     wandb=null \
-    mode=ppl_eval > logs/bd3lm_owt_block_size${BLOCK_SIZE}.log
+    mode=ppl_eval > $PWD/logs/bd3lm_owt_block_size${BLOCK_SIZE}.log

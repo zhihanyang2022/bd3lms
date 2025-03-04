@@ -48,5 +48,5 @@ for data in "${datasets[@]}"; do
         model.length=1024 \
         eval.checkpoint_path=kuleshov-group/mdlm-owt \
         wandb=null \
-        mode=ppl_eval > logs/mdlm_$data.log
+        mode=ppl_eval > $PWD/logs/mdlm_$data.log
 done

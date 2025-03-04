@@ -23,4 +23,4 @@ srun python -u main.py \
     model.length=1024 \
     eval.checkpoint_path=kuleshov-group/mdlm-owt \
     wandb=null \
-    mode=ppl_eval > logs/mdlm_owt.log
+    mode=ppl_eval > $PWD/logs/mdlm_owt.log

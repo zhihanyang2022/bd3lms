@@ -578,12 +578,9 @@ class Diffusion(L.LightningModule):
 
     if not torch.allclose(x_new, x):
       tokens_sampled = (x_new - x) != 0
-      score = torch.zeros_like(p_x0[:, :, 0])
-      score[tokens_sampled] = p_x0[tokens_sampled].gather(
-        -1, x_new[tokens_sampled].unsqueeze(-1)).squeeze(-1)
-      return None, x_new, score
+      return None, x_new
     else:
-      return p_x0, x_new, None
+      return p_x0, x_new
 
   @torch.no_grad()
   def _ar_sampler(self, bsz, context_len=1024):
@@ -599,8 +596,6 @@ class Diffusion(L.LightningModule):
         dtype=torch.long,
         device=self.device)
       x[:, 0] = self.tokenizer.bos_token_id
-      
-      score = torch.ones(1, 1, device=self.device)
       stop = False
       for i in tqdm(range(num_pred_tokens)):
         # need to sample a gumbel for each token
@@ -616,9 +611,8 @@ class Diffusion(L.LightningModule):
         next_logits = next_logits.exp()
         next_logits = self._nucleus_sample(next_logits).log()
         y = (next_logits[:, -1] + noise).argmax(-1)
-        score = torch.cat((score, next_logits[:, -1, y].exp()), dim=1)
         if (i+1) > 256:
-          stop, x_out = self._check_stop_conds(x[:, :i+1], score)
+          stop, x_out = self._check_stop_conds(x[:, :i+1])
           if stop:
             x = x_out
         if stop and not self.config.sampling.var_length:
@@ -984,14 +978,12 @@ class Diffusion(L.LightningModule):
       if stride_num == 0:
         x_accum = self._sample_prior(n_samples, self.block_size).to(self.device)
         x_accum[:, 0] = self.tokenizer.bos_token_id
-        score = torch.ones(1, 1, device=self.device)
       else:
         if mdlm_semi_ar:
           x = self._sample_prior(n_samples, 512).to(self.device)
         else:
           x = self._sample_prior(n_samples, self.block_size).to(self.device)
         x_accum = torch.cat((x_accum, x), dim=1)
-        score = torch.cat((score, torch.zeros(1, 1, device=self.device)), dim=1)
 
       # compute logits in a sliding window (context passed to model can't exceed context_size)
       end_idx = (stride_num + 1) * self.block_size
@@ -1017,7 +1009,7 @@ class Diffusion(L.LightningModule):
         elif not self.config.sampling.first_hitting:
           t = timesteps[i]
 
-        p_x0_cache, x_next, score_t = self._ddpm_caching_update(
+        p_x0_cache, x_next = self._ddpm_caching_update(
             x=x_accum[:, fwd_idx],
             t=t * ones,
             dt=dt,
@@ -1027,13 +1019,9 @@ class Diffusion(L.LightningModule):
        
         x_accum[:, fwd_idx] = x_next
 
-        # accumulate sample likelihoods
-        if score_t is not None:
-          score[:, stride_num] += score_t.mean(-1)
-
       # check if we need to resample (or stop sampling for variable-length sampling)
       if x_accum.shape[1] > 256:
-        stop, x_accum = self._check_stop_conds(x_accum, score)
+        stop, x_accum = self._check_stop_conds(x_accum)
         if stop and not self.config.sampling.var_length:
           return None, None
         elif stop:
@@ -1045,13 +1033,12 @@ class Diffusion(L.LightningModule):
     entropy = torch.special.entr(counts.float() / counts.sum()).sum()
     return entropy
   
-  def _check_stop_conds(self, x, scores):
+  def _check_stop_conds(self, x):
     """Check if sampling should stop based on 1) eos, 2) entropy, or 3) likelihood.
     Entropy/likelihood evaluated on last 256 token-block.
     
     Args:
       x: torch.Tensor, current sample.
-      scores: torch.Tensor, likelihood of current sample (only for variable-length sampling).
     Returns:
       stop: bool, whether to stop sampling.
       x: torch.Tensor, sample (potentially truncated for variable-length sampling).
