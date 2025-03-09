@@ -30,7 +30,8 @@ def _load_from_checkpoint(config, tokenizer):
     config.eval.checkpoint_path,
     tokenizer=tokenizer,
     config=config,
-    strict=False).to('cuda')
+    strict=False,
+    weights_only=False).to('cuda')
 
 @L.pytorch.utilities.rank_zero_only
 def _print_config(

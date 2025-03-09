@@ -105,7 +105,7 @@ class Diffusion(L.LightningModule):
     self.fast_forward_epochs = None
     self.fast_forward_batches = None
     self._validate_configuration()
-    
+
   def _get_parameters(self):
     parameters = [self.backbone.parameters(),
                   self.noise.parameters()]
@@ -138,7 +138,7 @@ class Diffusion(L.LightningModule):
   def to(self, *args, **kwargs):
     self = super().to(*args, **kwargs) 
     self.metrics.to(*args, **kwargs)
-    if hasattr(self.backbone, "cross_attn_mask"):
+    if hasattr(self.backbone, "cross_attn_mask") and self.config.model.attn_backend == 'sdpa':
       self.backbone.cross_attn_mask = self.backbone.cross_attn_mask.to(*args, **kwargs)
     if hasattr(self, 'sampling_eps_min') and torch.is_tensor(self.sampling_eps_min):
       self.sampling_eps_min = self.sampling_eps_min.to(*args, **kwargs)
