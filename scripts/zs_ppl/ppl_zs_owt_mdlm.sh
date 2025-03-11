@@ -17,16 +17,6 @@
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --exclude=brandal,davis-compute-02,ellis-compute-01,yu-compute-01,abdelfattah-compute-02,davis-compute-01,lancer-compute-01,snavely-compute-03,rush-compute-02,rush-compute-03,ellis-compute-02
 
-# This YAML is intended to serve as a reference for running on the MosaicML platform
-# The config from `yamls/main/mosaic-bert-base-uncased.yaml` is copied into the `parameters` field below.
-# You can copy/modify the contents of this file to run different workloads, following the other
-# examples in this directory.
-#
-# Note that some of the fields in this template haven't been filled in yet.
-# Please resolve any `null` fields before launching!
-#
-# When ready, use `mcli run -f yamls/main/mcloud_run_a100_80gb.yaml` to launch
-
 datasets=("ag_news"
           "scientific_papers_pubmed"
           "scientific_papers_arxiv"

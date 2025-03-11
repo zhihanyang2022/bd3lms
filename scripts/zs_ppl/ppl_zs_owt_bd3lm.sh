@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J ppl_zs_owt_sedd              # Job name
+#SBATCH -J ppl_zs_owt_bd3lm              # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -e watch_folder/%x_%j.err     # error log file (%j expands to jobID)
 #SBATCH -N 1                          # Total number of nodes requested
@@ -25,17 +25,22 @@ datasets=("ag_news"
           "wikitext103"
           "ptb"
           "lm1b-gpt2")
+  
+BLOCK_SIZE=4
 
 for data in "${datasets[@]}"; do
     echo "$data"
     srun python -u main.py \
         loader.eval_batch_size=16 \
         model=small \
-        algo=sedd \
+        algo=bd3lm \
+        algo.backbone=hf_dit \
         data=$data \
         +data.insert_valid_eos=False \
         model.length=1024 \
-        eval.checkpoint_path=/share/kuleshov/ssahoo/textdiffusion/text-diffusion-exp-v4-nBm2gE-small-param-sedd_data-openwebtext-split_seqlen-1024_maxs-1300001_bs-512/checkpoints/last.ckpt \
+        block_size=${BLOCK_SIZE} \
+        eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
         wandb=null \
-        mode=ppl_eval > $PWD/logs/sedd_$data.log
+        mode=ppl_eval \
+        model.attn_backend=sdpa > $PWD/logs/bd3lm_${data}_block_size${BLOCK_SIZE}.log
 done

@@ -1,9 +1,9 @@
 # [Block Diffusion Interpolates Between Autoregressive and Diffusion Language Models](https://openreview.net/forum?id=tyEyYT267x) (ICLR 2025 Oral)
-By [Marianne Arriola](https://mariannearriola.github.io), [Subham Sekhar Sahoo](https://s-sahoo.github.io), [Aaron Gokaslan](https://skylion007.github.io), [Justin T Chiu](https://justinchiu.netlify.app), [Zhihan Yang](https://zhihanyang2022.github.io/), [Zhixuan Qi](https://zhixuanqi.com/), [Jiaqi Han](https://hanjq17.github.io/), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
+By [Marianne Arriola](https://m-arriola.com/), [Subham Sekhar Sahoo](https://s-sahoo.github.io), [Aaron Gokaslan](https://skylion007.github.io), [Justin T Chiu](https://justinchiu.netlify.app), [Zhihan Yang](https://zhihanyang2022.github.io/), [Zhixuan Qi](https://zhixuanqi.com/), [Jiaqi Han](https://hanjq17.github.io/), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
 
 <!-- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/) -->
 [![deploy](https://img.shields.io/badge/Paper_📃-green)](https://openreview.net/forum?id=tyEyYT267x)
-[![deploy](https://img.shields.io/badge/Blog_📝%20%20-8A2BE2)](https://mariannearriola.github.io/bd3-lms/)
+[![deploy](https://img.shields.io/badge/Blog_📝%20%20-8A2BE2)](https://m-arriola.com/bd3lms/)
 [![deploy](https://img.shields.io/badge/HuggingFace_🤗%20-BD3LMs%20-orange)](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f)
 
 ![graphical_abstract](graphical_abstract.png)
