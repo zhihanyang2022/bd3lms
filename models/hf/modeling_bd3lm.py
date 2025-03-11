@@ -19,12 +19,6 @@ except:
 
 from .configuration_bd3lm import BD3LMConfig
 
-# Flags required to enable jit fusion kernels
-torch._C._jit_set_profiling_mode(False)
-torch._C._jit_set_profiling_executor(False)
-torch._C._jit_override_can_fuse_on_cpu(True)
-torch._C._jit_override_can_fuse_on_gpu(True)
-
 def block_diff_mask(b, h, q_idx, kv_idx, block_size=None, n=None):
   """
   Constructs the specialized block diffusion attention mask for training
@@ -106,8 +100,6 @@ def modulate(x: torch.Tensor,
              scale: torch.Tensor) -> torch.Tensor:
   return x * (1 + scale) + shift
 
-
-@torch.jit.script
 def bias_dropout_add_scale_fused_train(
     x: torch.Tensor,
     bias: typing.Optional[torch.Tensor],
@@ -117,8 +109,6 @@ def bias_dropout_add_scale_fused_train(
   return bias_dropout_add_scale(
     x, bias, scale, residual, prob, True)
 
-
-@torch.jit.script
 def bias_dropout_add_scale_fused_inference(
     x: torch.Tensor,
     bias: typing.Optional[torch.Tensor],
@@ -128,8 +118,6 @@ def bias_dropout_add_scale_fused_inference(
   return bias_dropout_add_scale(
     x, bias, scale, residual, prob, False)
 
-
-@torch.jit.script
 def modulate_fused(x: torch.Tensor,
                    shift: torch.Tensor,
                    scale: torch.Tensor) -> torch.Tensor:
@@ -302,7 +290,6 @@ class DDiTBlock(nn.Module):
   def __init__(self, n, block_size, dim, n_heads, cond_dim, mlp_ratio=4,
                dropout=0.1, max_seqlen=1024, attn_backend='flash_attn'):
     super().__init__()
-    self.max_seqlen = max_seqlen
     self.n = n
     self.block_size = block_size
     self.n_heads = n_heads
@@ -389,8 +376,9 @@ class DDiTBlock(nn.Module):
 
     # get qkvs
     if mask is not None and not sample_mode:
-      qkv_x = self.get_qkv(x[:,:self.n], rotary_cos_sin)
-      qkv_x0 = self.get_qkv(x[:,self.n:], rotary_cos_sin)
+      n = mask.shape[-1] // 2
+      qkv_x = self.get_qkv(x[:,:n], rotary_cos_sin)
+      qkv_x0 = self.get_qkv(x[:,n:], rotary_cos_sin)
       qkv = torch.cat((qkv_x, qkv_x0), dim=1)
     else:
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
@@ -518,12 +506,13 @@ class DITBackbone(nn.Module):
       all_hidden_states.append(x)
     c = F.silu(self.sigma_map(sigma))
     if self.cross_attn:
-      rotary_cos_sin = self.rotary_emb(x[:, :self.n])
+      n = self.mask.shape[-1] // 2
+      rotary_cos_sin = self.rotary_emb(x[:, :n])
       mask = self.mask.to(x.device)
       # use block-causal mask only during sampling
       if sample_mode:
         mask = mask[
-          self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
+          n:n+x.shape[1], n:n+x.shape[1]]
     else:
       mask = None
       rotary_cos_sin = self.rotary_emb(x)
@@ -540,8 +529,8 @@ class DITBackbone(nn.Module):
           all_hidden_states.append(x)
       logits = self.output_layer(x, c)
     if self.cross_attn and not sample_mode:
-      logits = logits[:, :self.n]
-      all_hidden_states = [hidden_states[:, :self.n] for hidden_states in all_hidden_states]
+      logits = logits[:, :n]
+      all_hidden_states = [hidden_states[:, :n] for hidden_states in all_hidden_states]
     return logits, all_hidden_states
 
 class BD3LM(transformers.PreTrainedModel):

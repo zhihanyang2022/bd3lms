@@ -4,7 +4,7 @@ import transformers
 from models.hf import BD3LMConfig
 from models.hf import BD3LM
 
-BLOCK_SIZE=4
+BLOCK_SIZE=16
 BD3LMConfig.register_for_auto_class()
 BD3LM.register_for_auto_class('AutoModelForMaskedLM')
 device = 'cuda'
@@ -33,11 +33,11 @@ model.config.auto_map = {
 }
 
 # load ema params
-ckpt_path=f'/share/kuleshov/ma2238/textdiffusion/owt-sar4-v2/checkpoints/11-150000.ckpt'
+# ckpt_path=f'/share/kuleshov/ma2238/textdiffusion/owt-sar4-v2/checkpoints/11-150000.ckpt'
 # ckpt_path=f'/share/kuleshov/ma2238/textdiffusion/owt-sar8-v3/checkpoints/10-150000.ckpt'
-# ckpt_path=f'/share/kuleshov/ma2238/textdiffusion/owt-sar16-v2/checkpoints/13-150000.ckpt'
+ckpt_path=f'/share/kuleshov/ma2238/textdiffusion/owt-sar16-v2/checkpoints/13-150000.ckpt'
 
-ckpt = torch.load(ckpt_path)
+ckpt = torch.load(ckpt_path, weights_only=False)
 model = model.to(device)
 model.load_state_dict(ckpt['state_dict'])
 ema_params = ckpt['ema']['shadow_params']
