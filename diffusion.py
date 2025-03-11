@@ -77,6 +77,14 @@ class Diffusion(L.LightningModule):
     elif self.config.algo.backbone == 'hf_dit':
       self.backbone = transformers.AutoModelForMaskedLM.from_pretrained(
         config.eval.checkpoint_path, trust_remote_code=True)
+      #  egenerate mask if pretrained model uses flex attention mask
+      # and current model uses sdpa mask
+      if getattr(self.backbone.config, 'attn_backend', None) == 'flex' and \
+        self.config.model.attn_backend == 'sdpa':
+        self.backbone.config.attn_backend = 'sdpa'
+        for i in self.backbone.backbone.blocks:
+          i.attn_backend = 'sdpa'
+        self.backbone.backbone.gen_mask(self.config.model.length, self.block_size, attn_backend='sdpa')
     else:
       raise ValueError(f'Unknown backbone: {self.config.algo.backbone}')
 
@@ -134,12 +142,19 @@ class Diffusion(L.LightningModule):
       
     if self.parameterization in {'sedd'}:
       assert self.time_conditioning
+    
+    if self.config.mode == 'sample_eval':
+      assert self.config.model.attn_backend != 'flex', 'FlexAttention mask not supported at inference.'
+    if self.config.model.attn_backend == 'flex':
+      assert self.config.algo.name == 'bd3lm', 'Custom FlexAttention mask only supported for BD3LM.'
       
   def to(self, *args, **kwargs):
     self = super().to(*args, **kwargs) 
     self.metrics.to(*args, **kwargs)
-    if hasattr(self.backbone, "cross_attn_mask") and self.config.model.attn_backend == 'sdpa':
-      self.backbone.cross_attn_mask = self.backbone.cross_attn_mask.to(*args, **kwargs)
+    if hasattr(self.backbone, "mask") and self.config.model.attn_backend == 'sdpa':
+      self.backbone.mask = self.backbone.mask.to(*args, **kwargs)
+    elif hasattr(self.backbone, "mask") and self.config.model.attn_backend == 'flex':
+      self.backbone.mask = self.backbone.mask.to(self.device)
     if hasattr(self, 'sampling_eps_min') and torch.is_tensor(self.sampling_eps_min):
       self.sampling_eps_min = self.sampling_eps_min.to(*args, **kwargs)
       self.sampling_eps_max = self.sampling_eps_max.to(*args, **kwargs)
@@ -306,7 +321,7 @@ class Diffusion(L.LightningModule):
   def forward(self, x, sigma, sample_mode=False, store_kv=False):
     """Returns log score."""
     sigma = self._process_sigma(sigma)
-    with torch.cuda.amp.autocast(dtype=torch.float32):
+    with torch.amp.autocast('cuda', dtype=torch.float32):
       if self.config.algo.name == 'bd3lm':
         logits = self.backbone(x, sigma,
                               store_kv=store_kv,
@@ -320,7 +335,7 @@ class Diffusion(L.LightningModule):
         logits = logits.log_softmax(-1)
       else:
         logits = self.backbone(x, sigma)
-        
+
     if self.cross_attn:
       x = x[:, :self.config.model.length]
     if self.parameterization == 'subs':
@@ -588,7 +603,7 @@ class Diffusion(L.LightningModule):
     if self.config.sampling.kv_cache:
       self.backbone.reset_kv_cache()
 
-    with torch.cuda.amp.autocast(dtype=torch.float32):
+    with torch.amp.autocast('cuda', dtype=torch.float32):
       # precompute token buffer
       num_pred_tokens = self.num_tokens - 1
       x = torch.zeros(
@@ -825,6 +840,7 @@ class Diffusion(L.LightningModule):
     x_input = xt
     if self.cross_attn:
       x_input = torch.cat((xt, x0), dim=-1)
+
     model_output = self.forward(x_input, sigma=sigma)
     utils.print_nans(model_output, 'model_output')
 
@@ -840,7 +856,7 @@ class Diffusion(L.LightningModule):
     return loss
 
   def _loss(self, x0, attention_mask, t=None, sampling_eps_min=None, sampling_eps_max=None):
-    if sampling_eps_min is None:
+    if sampling_eps_min is None and hasattr(self, 'sampling_eps_min'):
       sampling_eps_min = self.sampling_eps_min
       sampling_eps_max = self.sampling_eps_max
     elif not hasattr(self, 'sampling_eps_min'):

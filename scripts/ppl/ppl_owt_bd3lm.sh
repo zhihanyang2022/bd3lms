@@ -24,7 +24,7 @@ srun python -u main.py \
     data=openwebtext-split \
     data.insert_valid_special=False \
     model.length=1024 \
-    model.attn_backend=sdpa \
+    model.attn_backend=flex \
     block_size=${BLOCK_SIZE} \
     eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     wandb=null \

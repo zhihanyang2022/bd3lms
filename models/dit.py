@@ -16,58 +16,65 @@ import torch.nn as nn
 import torch.nn.functional as F
 try:
   from torch.nn.attention.flex_attention import flex_attention, create_block_mask
+  FLEX_ATTN_AVAILABLE = True
 except:
-  pass
+  FLEX_ATTN_AVAILABLE = False
 
 # Flags required to enable jit fusion kernels
 torch._C._jit_set_profiling_mode(False)
 torch._C._jit_set_profiling_executor(False)
 torch._C._jit_override_can_fuse_on_cpu(True)
-torch._C._jit_override_can_fuse_on_gpu(True)
+torch._C._jit_override_fcan_fuse_on_gpu(True)
 
-def block_causal_mask(num_rows, block_size, mode='full', offset=0):
-  mask = block_size * torch.arange(
-    1, num_rows // block_size + 1).unsqueeze(1).tile(block_size).flatten().unsqueeze(1)
-  if mode == 'full':
-    mask = (mask >= mask.T + offset)
-  elif mode == 'diag':
-    mask = (mask + offset == mask.T)
-  elif mode == 'triu_diag':
-    mask = torch.zeros(num_rows, num_rows)
-    rows = torch.arange(0, num_rows)
-    group_indices = rows // (block_size)
-    column_indices = group_indices * (block_size) + block_size + offset
-    valid_rows = column_indices < num_rows
-    mask[rows[valid_rows].unsqueeze(1), column_indices[valid_rows].unsqueeze(1)] = 1
-  return mask.int()
+def block_diff_mask(b, h, q_idx, kv_idx, block_size=None, n=None):
+  """
+  Constructs the specialized block diffusion attention mask for training
+  composed of three masks:
+  - **Block Diagonal Mask (M_BD)**: Self-attention within noised blocks
+  - **Offset Block Causal Mask (M_OBC)**: Cross-attention for conditional context
+  - **Block Causal Mask (M_BC)**: Attention to update x0
 
-def flex_attention_mask(b, h, q_idx, kv_idx, block_size=None, n=None):
-    # whether token belongs to xt or x0
-    x0_flag_q = (q_idx >= n).to(q_idx.dtype)
-    x0_flag_k = (kv_idx >= n).to(kv_idx.dtype)
+  Args:
+      b, h: Batch and head indices (ignored for mask logic).
+      q_idx, kv_idx: Query and Key indices.
+      seq_len: Total sequence length.
+      block_size: Defines the block structure.
 
-    # block indices
-    block_q = torch.where(
-      x0_flag_q == 1,
-      (q_idx - n) // block_size,
-      q_idx // block_size)
-    block_k = torch.where(x0_flag_k == 1,
-                          (kv_idx - n) // block_size,
-                          kv_idx // block_size)
+  Returns:
+      A boolean attention mask.
+  """
 
-    # self-attention within block
-    same_block = (block_q == block_k) & (x0_flag_q == x0_flag_k)
+  # Indicate whether token belongs to xt or x0
+  x0_flag_q = (q_idx >= n)
+  x0_flag_kv = (kv_idx >= n)
 
-    # cross-attention to previous blocks in x0
-    earlier_block = (block_k < block_q)
-    allowed_cross = (block_q > 0) & earlier_block & (x0_flag_k == 1)
+  # Compute block indices
+  block_q = torch.where(x0_flag_q == 1,
+                        (q_idx - n) // block_size,
+                        q_idx // block_size)
+  block_kv = torch.where(x0_flag_kv == 1,
+                        (kv_idx - n) // block_size,
+                        kv_idx // block_size)
 
-    mask = same_block | allowed_cross
-    return mask
+  # **1. Block Diagonal Mask (M_BD) **
+  block_diagonal = (block_q == block_kv) & (x0_flag_q == x0_flag_kv)
 
-@torch.compile(fullgraph=True, mode="max-autotune")
-def fused_flex_attention(q, k, v, mask=None, score_mod=None):
-    return flex_attention(q, k, v, block_mask=mask, score_mod=score_mod)
+  # **2. Offset Block-Causal Mask (M_OBC) **
+  offset_block_causal = (
+    (block_q > block_kv)
+    & (x0_flag_kv == 1)
+    & (x0_flag_q == 0)
+  )
+
+  # **3. Block-Causal Mask (M_BC) **
+  block_causal = (block_q >= block_kv) & (x0_flag_kv == 1) & (x0_flag_q == 1)
+
+  # **4. Combine Masks **
+  return block_diagonal | offset_block_causal | block_causal
+
+@torch.compile(fullgraph=True, mode="max-autotune-no-cudagraphs")
+def fused_flex_attention(q, k, v, mask=None):
+    return flex_attention(q, k, v, block_mask=mask)
 
 def bias_dropout_add_scale(
     x: torch.Tensor,
@@ -162,7 +169,7 @@ def rotate_half(x):
 
 
 def split_and_apply_rotary_pos_emb(qkv, rotary_cos_sin):
-  with torch.cuda.amp.autocast(enabled=False):
+  with torch.amp.autocast('cuda', enabled=False):
     cos, sin = rotary_cos_sin
     cos = cos.to(qkv.dtype)
     sin = sin.to(qkv.dtype)
@@ -209,7 +216,7 @@ class LayerNorm(nn.Module):
     self.weight = nn.Parameter(torch.ones([dim]))
     self.dim = dim
   def forward(self, x):
-    with torch.cuda.amp.autocast(enabled=False):
+    with torch.amp.autocast('cuda', enabled=False):
       x = F.layer_norm(x.float(), [self.dim])
     return x * self.weight[None, None, :]
 
@@ -291,7 +298,7 @@ class LabelEmbedder(nn.Module):
 #################################################################################
 
 class DDiTBlockCausal(nn.Module):
-  def __init__(self, n, dim, n_heads, mlp_ratio=4, dropout=0.1, max_batch_size=64, max_seqlen=1024, adaLN=False, cond_dim=None, attn_backend='flash_attn', attn_dropout=0.0):
+  def __init__(self, n, dim, n_heads, mlp_ratio=4, dropout=0.1, max_batch_size=64, max_seqlen=1024, adaLN=False, cond_dim=None, attn_backend='flash_attn'):
     super().__init__()
     self.n_heads = n_heads
     self.max_seqlen = max_seqlen
@@ -309,7 +316,6 @@ class DDiTBlockCausal(nn.Module):
       nn.Linear(mlp_ratio * dim, dim, bias=True))
     self.dropout2 = nn.Dropout(dropout)
     self.dropout = dropout
-    self.attn_dropout = attn_dropout
     self.adaLN = adaLN
     if self.adaLN:
       self.adaLN_modulation = nn.Linear(cond_dim, 6 * dim)
@@ -340,7 +346,7 @@ class DDiTBlockCausal(nn.Module):
       'b s (three h d) -> b s three h d',
       three=3,
       h=self.n_heads)
-    with torch.cuda.amp.autocast(enabled=False):
+    with torch.amp.autocast('cuda', enabled=False):
       cos, sin = rotary_cos_sin
       if self.attn_backend == 'flash_attn':
         qkv = apply_rotary_pos_emb(
@@ -351,17 +357,15 @@ class DDiTBlockCausal(nn.Module):
           
     return qkv
 
-  def cross_attn(self, qkv, cross_attn_mask=None):
+  def cross_attn(self, qkv, mask=None):
     scale = qkv.shape[-1]
     qkv = qkv.transpose(1, 3)
-    attn_dropout = self.attn_dropout if self.training else 0.0
-    cross_attn_mask = cross_attn_mask.bool() if cross_attn_mask is not None else None
+    mask = mask.bool() if mask is not None else None
     x = F.scaled_dot_product_attention(
       query=qkv[:, :, 0],
       key=qkv[:, :, 1],
       value=qkv[:, :, 2],
-      attn_mask=cross_attn_mask,
-      dropout_p=attn_dropout,
+      attn_mask=mask,
       is_causal=True,
       scale=1 / math.sqrt(scale))
     x = x.transpose(1, 2)
@@ -373,7 +377,7 @@ class DDiTBlockCausal(nn.Module):
               rotary_cos_sin,
               c=None,
               causal=True,
-              cross_attn_mask=None,
+              mask=None,
               store_kv=False,
               **kwargs):
     del kwargs
@@ -432,7 +436,7 @@ class DDiTBlock(nn.Module):
   def __init__(self, n, dim, n_heads, adaLN,
                latent_dim=None, cond_dim=None,
                latent_conditioning=-1, mlp_ratio=4,
-               dropout=0.1, block_size=1, attn_dropout=0.0,
+               dropout=0.1, block_size=1,
                max_batch_size=64, max_seqlen=1024, attn_backend='flash_attn'):
     super().__init__()
     self.max_seqlen = max_seqlen
@@ -443,7 +447,6 @@ class DDiTBlock(nn.Module):
     self.block_size = block_size
 
     self.norm1 = LayerNorm(dim)
-    self.attn_dropout = attn_dropout
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
     self.attn_out = nn.Linear(dim, dim, bias=False)
     self.dropout1 = nn.Dropout(dropout)
@@ -472,7 +475,7 @@ class DDiTBlock(nn.Module):
   def get_qkv(self, x, rotary_cos_sin, store_kv=False):
     # compute qkv (potentially use cache)
     if self.kv_cache is not None:
-      new_qkv = self.attn_qkv(x[:, -self.max_seqlen:])
+      new_qkv = self.attn_qkv(x[:, -self.block_size:])
       qkv = torch.cat((self.kv_cache, new_qkv), dim=1)
     else:
       qkv = self.attn_qkv(x)
@@ -485,7 +488,7 @@ class DDiTBlock(nn.Module):
       'b s (three h d) -> b s three h d',
       three=3,
       h=self.n_heads)
-    with torch.cuda.amp.autocast(enabled=False):
+    with torch.amp.autocast('cuda', enabled=False):
       cos, sin = rotary_cos_sin
       if self.attn_backend == 'flash_attn':
         qkv = apply_rotary_pos_emb(
@@ -516,35 +519,25 @@ class DDiTBlock(nn.Module):
         self.mlp(self.norm2(x)), None, scale, x, self.dropout)
     return x
 
-  def cross_attn(self, qkv, cross_attn_mask=None):
+  def cross_attn(self, qkv, mask=None):
     scale = qkv.shape[-1]
     qkv = qkv.transpose(1, 3)
-    attn_dropout = self.attn_dropout if self.training else 0.0
-    cross_attn_mask = cross_attn_mask.bool() if cross_attn_mask is not None else None
+    mask = mask.bool() if mask is not None else None
     x = F.scaled_dot_product_attention(
       query=qkv[:, :, 0],
       key=qkv[:, :, 1],
       value=qkv[:, :, 2],
-      attn_mask=cross_attn_mask,
-      dropout_p=attn_dropout,
+      attn_mask=mask,
       is_causal=False,
       scale=1 / math.sqrt(scale))
     x = x.transpose(1, 2)
     x = rearrange(x, 'b s h d -> b s (h d)')
     return x
 
-  def cross_attn_flex(self, qkv, cross_attn_mask=None):
+  def cross_attn_flex(self, qkv, mask=None):
     qkv = rearrange(qkv, 'b s three h d -> b h three s d', h=self.n_heads)
-    
-    dropout = None
-    if self.training:
-      B, H, S, D = qkv[:, :, 0].shape
-      full_dropout = (torch.rand((B, H, S, D), device=qkv.device) < self.attn_dropout)
-      def dropout(score, b, h, q_idz, kv_idx):
-        return torch.where(full_dropout[b, h, q_idz, kv_idx], -float("inf"), score)
-      
     x = fused_flex_attention(
-      qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2], mask=cross_attn_mask, score_mod=dropout)
+      qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2], mask=mask)
     x = rearrange(x, 'b h s d -> b s (h d)')
     return x
 
@@ -553,9 +546,9 @@ class DDiTBlock(nn.Module):
               rotary_cos_sin,
               c,
               causal=False,
-              cross_attn_mask=None,
+              mask=None,
               sample_mode=False,
-              store_kv=False,):
+              store_kv=False):
     batch_size, seq_len = x.shape[0], x.shape[1]
 
     shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = None, None, None, None, None, None
@@ -568,7 +561,6 @@ class DDiTBlock(nn.Module):
         self.adaLN_modulation(c), '(b h) d -> b h d', b=batch_size
         ).chunk(6, dim=-1)
 
-    # attention operation
     x_skip = x
     if c is not None:
       x = modulate_fused(self.norm1(x), shift_msa, scale_msa)
@@ -576,17 +568,15 @@ class DDiTBlock(nn.Module):
       x = self.norm1(x)
 
     # get qkvs
-    if cross_attn_mask is not None and not sample_mode:
+    if mask is not None and not sample_mode:
       qkv_x = self.get_qkv(x[:,:self.n], rotary_cos_sin)
       qkv_x0 = self.get_qkv(x[:,self.n:], rotary_cos_sin)
       qkv = torch.cat((qkv_x, qkv_x0), dim=1)
     else:
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
-
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
-    if self.attn_backend == 'flash_attn' and cross_attn_mask is None:
+      
+    # attention
+    if self.attn_backend == 'flash_attn' and mask is None:
       qkv = einops.rearrange(qkv, 'b s ... -> (b s) ...')
       cu_seqlens = torch.arange(
         0, (batch_size + 1) * seq_len, step=seq_len,
@@ -594,16 +584,12 @@ class DDiTBlock(nn.Module):
       x = flash_attn.flash_attn_interface.flash_attn_varlen_qkvpacked_func(
         qkv, cu_seqlens, seq_len, 0., causal=causal)
       x = rearrange(x, '(b s) h d -> b s (h d)', b=batch_size)     
+    elif self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
+      x = self.cross_attn_flex(qkv, mask=mask)
     elif self.attn_backend == 'sdpa':
-      x = self.cross_attn(qkv, cross_attn_mask=cross_attn_mask)
-    elif self.attn_backend == 'flex':
-      x = self.cross_attn_flex(qkv, cross_attn_mask=cross_attn_mask)
+      x = self.cross_attn(qkv, mask=mask)
     else:
       raise ValueError('Unknown attention backend')
-
-    end.record()
-    torch.cuda.synchronize()
-    print(start.elapsed_time(end))
     x = self.attn_mlp(x, c, gate_msa, gate_mlp, shift_mlp, scale_mlp, x_skip)
     return x
    
@@ -667,10 +653,9 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     if not self.causal:
       self.sigma_map = TimestepEmbedder(cond_dim)
     self.rotary_emb = Rotary(dim // config.model.n_heads)
-    self.attn_backend = getattr(config.model, 'attn_backend', 'flash-attn')
+    self.attn_backend = getattr(config.model, 'attn_backend', 'flash_attn')
 
     blocks = []
-    attn_dropout = 0.0
     for _ in range(config.model.n_blocks):
       if self.causal:
         block = DDiTBlockCausal(
@@ -681,8 +666,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
           max_batch_size=config.loader.eval_batch_size,
           adaLN=self.adaLN,
           cond_dim=cond_dim,
-          attn_backend=self.attn_backend,
-          attn_dropout=attn_dropout)
+          attn_backend=self.attn_backend)
       else:
         block = DDiTBlock(
           n=config.model.length,
@@ -692,7 +676,6 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
           adaLN=self.adaLN,
           dropout=config.model.dropout,
           block_size=block_size,
-          attn_dropout=attn_dropout,
           attn_backend=self.attn_backend)
       blocks.append(block)
     self.blocks = nn.ModuleList(blocks)
@@ -711,49 +694,43 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     else:
       return bias_dropout_add_scale_fused_inference
     
-  def gen_mask(self, seqlen, block_size, attn_backend='sdpa', batch_size=None):
-    if attn_backend == 'sdpa':
-      self_attn_mask = block_causal_mask(seqlen, block_size, mode='diag')
-      x0_attn_mask = block_causal_mask(seqlen, block_size, mode='full')
-      cross_attn_mask = x0_attn_mask.clone()
-      cross_attn_mask.masked_fill_(self_attn_mask == 1, 0)
-      cross_attn_mask = torch.cat((self_attn_mask, cross_attn_mask), dim=1)
-      x0_attn_mask = torch.cat((torch.zeros_like(self_attn_mask), x0_attn_mask), dim=1)
-      self.cross_attn_mask = torch.cat((cross_attn_mask, x0_attn_mask), dim=0)
+  def gen_mask(self, seqlen, block_size, attn_backend='sdpa'):
+    """Genererates attention mask"""
+    if attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
+      self.block_diff_mask = create_block_mask(
+        partial(block_diff_mask, block_size=block_size, n=seqlen),
+        B=None, H=None, Q_LEN=seqlen*2, KV_LEN=seqlen*2)
+    elif attn_backend == 'sdpa':
+      self.block_diff_mask = block_diff_mask(
+        b=None, h=None, q_idx=torch.arange(seqlen*2)[:, None], 
+        kv_idx=torch.arange(seqlen*2)[None, :], block_size=block_size, n=seqlen)
     else:
-      mask_fn = partial(flex_attention_mask, block_size=block_size, n=seqlen)
-      self.cross_attn_mask = create_block_mask(
-        mask_fn, B=None, H=None, Q_LEN=seqlen*2, KV_LEN=seqlen*2, _compile=True)
+      raise ValueError('Unknown attention backend')
     
-  def to(self, *args, **kwargs):
-    device = kwargs.get('device', args[0] if len(args) > 0 else None)
-    if device is not None and hasattr(self, 'cross_attn_mask') and hasattr(self.cross_attn_mask, 'to'):
-        self.cross_attn_mask = self.cross_attn_mask.to(device)
-    return super().to(*args, **kwargs)
-
   def reset_kv_cache(self):
     for block in self.blocks:
       block.kv_cache = None
 
-  def forward(self, indices, sigma, sample_mode=False, store_kv=False, cross_attn_mask=None):
+  def forward(self, indices, sigma, sample_mode=False, store_kv=False):
     x = self.vocab_embed(indices)
     if sigma is None:
       t_cond = None
     else:
       t_cond = F.silu(self.sigma_map(sigma))
-    cross_attn = hasattr(self, 'cross_attn_mask')
+
+    cross_attn = hasattr(self, 'block_diff_mask')
     if cross_attn:
       rotary_cos_sin = self.rotary_emb(x[:, :self.n])
-      if cross_attn_mask is None:
-        cross_attn_mask = self.cross_attn_mask.to(x.device)
-        # use block-causal mask only
-        if sample_mode:
-          cross_attn_mask = cross_attn_mask[
-            self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
+      mask = self.block_diff_mask
+      # index block-causal mask only during sampling
+      if sample_mode:
+        mask = mask[
+          self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
     else:
       rotary_cos_sin = self.rotary_emb(x)
-      cross_attn_mask = None
-    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+      mask = None
+
+    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
       for i in range(len(self.blocks)):
         x = self.blocks[i](
           x,
@@ -761,7 +738,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
           c=t_cond,
           causal=self.causal,
           sample_mode=sample_mode,
-          cross_attn_mask=cross_attn_mask,
+          mask=mask,
           store_kv=store_kv)
       x = self.output_layer(x, t_cond)
     if cross_attn and not sample_mode:

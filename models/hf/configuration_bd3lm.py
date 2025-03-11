@@ -15,7 +15,7 @@ class BD3LMConfig(transformers.PretrainedConfig):
     vocab_size: int = 50258,
     model_length: int = 1024,
     cross_attn: bool = True,
-    attn_backend: str = 'sdpa',
+    attn_backend: str = 'flex',
     hidden_dim: int = 768,
     cond_dim: int = 129,
     n_blocks: int = 12,

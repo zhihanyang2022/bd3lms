@@ -110,7 +110,6 @@ def generate_samples(config, logger, tokenizer):
 
 def _ppl_eval(config, logger, tokenizer):
   logger.info('Starting Eval.')
-
   model = _load_from_checkpoint(config=config,
                                 tokenizer=tokenizer)
 
@@ -175,7 +174,6 @@ def _train(config, logger, tokenizer):
       config.training.from_pretrained,
       tokenizer=tokenizer,
       config=config)
-    model.backbone.gen_mask(config.model.length, config.block_size)
     # add buffers for grid search
     if config.training.clip_search_interval > 0:
       model.register_buffer('sampling_eps_min', torch.tensor(
@@ -186,8 +184,6 @@ def _train(config, logger, tokenizer):
     logger.info(f'Initializing new model')
     model = diffusion.Diffusion(
       config, tokenizer=valid_ds.tokenizer)
-    model.backbone.gen_mask(config.model.length, config.block_size)
-      
   trainer = hydra.utils.instantiate(
     config.trainer,
     default_root_dir=os.getcwd(),
