@@ -19,6 +19,12 @@ except:
 
 from .configuration_bd3lm import BD3LMConfig
 
+# Flags required to enable jit fusion kernels
+torch._C._jit_set_profiling_mode(False)
+torch._C._jit_set_profiling_executor(False)
+torch._C._jit_override_can_fuse_on_cpu(True)
+torch._C._jit_override_can_fuse_on_gpu(True)
+
 def block_diff_mask(b, h, q_idx, kv_idx, block_size=None, n=None):
   """
   Constructs the specialized block diffusion attention mask for training
@@ -100,6 +106,7 @@ def modulate(x: torch.Tensor,
              scale: torch.Tensor) -> torch.Tensor:
   return x * (1 + scale) + shift
 
+@torch.jit.script
 def bias_dropout_add_scale_fused_train(
     x: torch.Tensor,
     bias: typing.Optional[torch.Tensor],
@@ -109,6 +116,7 @@ def bias_dropout_add_scale_fused_train(
   return bias_dropout_add_scale(
     x, bias, scale, residual, prob, True)
 
+@torch.jit.script
 def bias_dropout_add_scale_fused_inference(
     x: torch.Tensor,
     bias: typing.Optional[torch.Tensor],
@@ -118,6 +126,7 @@ def bias_dropout_add_scale_fused_inference(
   return bias_dropout_add_scale(
     x, bias, scale, residual, prob, False)
 
+@torch.jit.script
 def modulate_fused(x: torch.Tensor,
                    shift: torch.Tensor,
                    scale: torch.Tensor) -> torch.Tensor:
@@ -288,7 +297,7 @@ def regular_attention_multi_headed(qkv):
 
 class DDiTBlock(nn.Module):
   def __init__(self, n, block_size, dim, n_heads, cond_dim, mlp_ratio=4,
-               dropout=0.1, max_seqlen=1024, attn_backend='flash_attn'):
+               dropout=0.1, attn_backend='sdpa'):
     super().__init__()
     self.n = n
     self.block_size = block_size
@@ -383,11 +392,9 @@ class DDiTBlock(nn.Module):
     else:
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
 
-    if mask is None and self.attn_backend == 'flash_attn':
-      x = regular_attention_multi_headed(qkv)
-    elif self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
+    if self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
       x = self.cross_attn_flex(qkv, mask=mask)
-    elif self.attn_backend == 'sdpa':
+    elif self.attn_backend == 'sdpa' or not FLEX_ATTN_AVAILABLE:
       x = self.cross_attn(x, qkv, mask=mask)
     else:
       raise ValueError('Unknown attention backend')
@@ -489,7 +496,7 @@ class DITBackbone(nn.Module):
       self.mask = create_block_mask(
         partial(block_diff_mask, block_size=block_size, n=seqlen),
         B=None, H=None, Q_LEN=seqlen*2, KV_LEN=seqlen*2)
-    elif attn_backend == 'sdpa':
+    elif attn_backend == 'sdpa' or not FLEX_ATTN_AVAILABLE:
       self.mask = block_diff_mask(
         b=None, h=None, q_idx=torch.arange(seqlen*2)[:, None], 
         kv_idx=torch.arange(seqlen*2)[None, :], block_size=block_size, n=seqlen)

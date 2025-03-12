@@ -6,16 +6,13 @@
 #SBATCH --get-user-env                # retrieve the users login environment
 #SBATCH --mem=32G                  # server memory requested (per node)
 #SBATCH -t 96:00:00                  # Time limit (hh:mm:ss)
-#SBATCH --partition=kuleshov,gpu         # Request partition
-# --constraint="gpu-mid|gpu-high"
-# --constraint="[r6000|a5000|a6000|3090|a100|a40]"
-#SBATCH --constraint="[a5000|a6000]"
+#SBATCH --partition=gpu         # Request partition
+#SBATCH --constraint="[a5000|a6000|3090]"
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4                 # Type/number of GPUs needed
 #SBATCH --cpus-per-task=1              # Number of CPU cores per task
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
-#SBATCH --exclude=brandal,davis-compute-02,ellis-compute-01,yu-compute-01,abdelfattah-compute-02,davis-compute-01,lancer-compute-01,snavely-compute-03,rush-compute-02,rush-compute-03,ellis-compute-02
 
 datasets=("ag_news"
           "scientific_papers_pubmed"
