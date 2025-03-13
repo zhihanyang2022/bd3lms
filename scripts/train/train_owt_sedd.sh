@@ -21,6 +21,6 @@ python -u main.py \
     model=small \
     algo=sedd \
     data=openwebtext-split \
-    +data.insert_valid_eos=False \
+    data.insert_valid_eos=False \
     model.length=1024 \
     wandb.name=sedd-owt

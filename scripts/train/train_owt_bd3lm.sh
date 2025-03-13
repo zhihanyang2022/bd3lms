@@ -24,7 +24,7 @@ python -u main.py \
     model=small \
     algo=bd3lm \
     data=openwebtext-split \
-    +data.insert_valid_eos=False \
+    data.insert_valid_eos=False \
     model.length=1024 \
     block_size=${BLOCK_SIZE} \
     wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
