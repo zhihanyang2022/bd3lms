@@ -176,11 +176,10 @@ def _train(config, logger, tokenizer):
       config=config,
       strict=False)
     # add buffers for grid search
-    if config.training.clip_search_interval > 0:
-      model.register_buffer('sampling_eps_min', torch.tensor(
-        config.training.sampling_eps_min))
-      model.register_buffer('sampling_eps_max', torch.tensor(
-        config.training.sampling_eps_max))
+    model.register_buffer('sampling_eps_min', torch.tensor(
+      config.training.sampling_eps_min))
+    model.register_buffer('sampling_eps_max', torch.tensor(
+      config.training.sampling_eps_max))
   else:
     logger.info(f'Initializing new model')
     model = diffusion.Diffusion(
