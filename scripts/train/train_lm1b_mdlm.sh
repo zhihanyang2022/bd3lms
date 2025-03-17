@@ -22,4 +22,4 @@ python -u main.py \
     algo=mdlm \
     data=lm1b-wrap \
     model.length=128 \
-    wandb.name=sedd-lm1b
+    wandb.name=mdlm-lm1b
