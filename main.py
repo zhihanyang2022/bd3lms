@@ -173,7 +173,8 @@ def _train(config, logger, tokenizer):
     model = diffusion.Diffusion.load_from_checkpoint(
       config.training.from_pretrained,
       tokenizer=tokenizer,
-      config=config)
+      config=config,
+      strict=False)
     # add buffers for grid search
     if config.training.clip_search_interval > 0:
       model.register_buffer('sampling_eps_min', torch.tensor(
