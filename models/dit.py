@@ -14,10 +14,12 @@ import omegaconf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 try:
   from torch.nn.attention.flex_attention import flex_attention, create_block_mask
+  FLEX_ATTN_AVAILABLE = True
 except:
-  pass
+  FLEX_ATTN_AVAILABLE = False
 
 # Flags required to enable jit fusion kernels
 torch._C._jit_set_profiling_mode(False)
