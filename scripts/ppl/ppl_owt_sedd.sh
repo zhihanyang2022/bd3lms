@@ -17,6 +17,7 @@ srun python -u main.py \
     loader.eval_batch_size=16 \
     model=small \
     algo=sedd \
+    algo.ignore_bos=false \
     data=openwebtext-split \
     model.length=1024 \
     eval.checkpoint_path=/share/kuleshov/ssahoo/textdiffusion/text-diffusion-exp-v4-nBm2gE-small-param-sedd_data-openwebtext-split_seqlen-1024_maxs-1300001_bs-512/checkpoints/last.ckpt \

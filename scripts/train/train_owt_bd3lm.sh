@@ -14,7 +14,7 @@
 #SBATCH --requeue                     # Requeue upon preemption
 
 BLOCK_SIZE=16
-PRETRAIN_CKPT=$PWD/bd3lm_base_owt_850k.ckpt # to train from scratch, set to null
+PRETRAIN_CKPT=kuleshov-group/bd3lm-owt-block_size1024-pretrain # to train from scratch, set to null
 
 python -u main.py \
     loader.global_batch_size=512 \
@@ -23,6 +23,7 @@ python -u main.py \
     loader.eval_batch_size=8 \
     model=small \
     algo=bd3lm \
+    algo.clip_search_widths=[0.5,0.6,0.7,0.8,0.9] \
     data=openwebtext-split \
     data.insert_valid_eos=False \
     model.length=1024 \

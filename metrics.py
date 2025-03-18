@@ -76,8 +76,8 @@ class Metrics:
       self.valid_vars = {(eps, 1): []}
       for width in self.config.algo.clip_search_widths:
         for i in torch.arange(0, 1 - width + self.clip_search_delta, self.clip_search_delta):
-          min = torch.clamp(i, min=self.sampling_eps)
-          max = torch.clamp(i + width, min=self.sampling_eps)
+          min = torch.clamp(i, min=self.sampling_eps).item()
+          max = torch.clamp(i + width, min=self.sampling_eps).item()
           self.valid_vars[(min, max)] = []
     else:
       eps = self.sampling_eps

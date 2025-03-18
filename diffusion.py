@@ -151,10 +151,10 @@ class Diffusion(L.LightningModule):
   def to(self, *args, **kwargs):
     self = super().to(*args, **kwargs) 
     self.metrics.to(*args, **kwargs)
-    if hasattr(self.backbone, "mask") and self.config.model.attn_backend == 'sdpa':
-      self.backbone.mask = self.backbone.mask.to(*args, **kwargs)
-    elif hasattr(self.backbone, "mask") and self.config.model.attn_backend == 'flex':
-      self.backbone.mask = self.backbone.mask.to(self.device)
+    if hasattr(self.backbone, "block_diff_mask") and self.config.model.attn_backend == 'sdpa':
+      self.backbone.block_diff_mask = self.backbone.block_diff_mask.to(*args, **kwargs)
+    elif hasattr(self.backbone, "block_diff_mask") and self.config.model.attn_backend == 'flex':
+      self.backbone.block_diff_mask = self.backbone.block_diff_mask.to(self.device)
     if hasattr(self, 'sampling_eps_min') and torch.is_tensor(self.sampling_eps_min):
       self.sampling_eps_min = self.sampling_eps_min.to(*args, **kwargs)
       self.sampling_eps_max = self.sampling_eps_max.to(*args, **kwargs)
@@ -328,7 +328,7 @@ class Diffusion(L.LightningModule):
                               sample_mode=sample_mode)
       elif self.config.algo.name == 'ar':
         if self.config.algo.backbone == 'hf_dit':
-          logits = self.backbone(x, sigma)
+          logits = self.backbone(x, None)     
         else:
           logits = self.backbone(x, sigma, sample_mode=sample_mode, store_kv=store_kv)
         logits[:, :, self.mask_index] = self.neg_infinity
@@ -866,9 +866,7 @@ class Diffusion(L.LightningModule):
      attention_mask) = self._maybe_sub_sample(
        x0, attention_mask)
     if self.parameterization == 'ar':
-      output = self.backbone(input_tokens, None)
-      output[:, :, self.mask_index] = self.neg_infinity
-      output = output.log_softmax(-1)
+      output = self.forward(input_tokens, None)
       loss = - output.gather(
         -1, output_tokens[:, :, None])[:, :, 0]
     else:

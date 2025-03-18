@@ -296,14 +296,15 @@ def regular_attention_multi_headed(qkv):
 
 
 class DDiTBlock(nn.Module):
-  def __init__(self, n, block_size, dim, n_heads, cond_dim, mlp_ratio=4,
-               dropout=0.1, attn_backend='sdpa'):
+  def __init__(self, n, block_size, dim, n_heads, cond_dim, causal=False,
+               mlp_ratio=4, dropout=0.1, adaln=True, attn_backend='sdpa'):
     super().__init__()
     self.n = n
     self.block_size = block_size
     self.n_heads = n_heads
     self.attn_backend = attn_backend
     self.kv_cache = None
+    self.causal = causal
 
     self.norm1 = LayerNorm(dim)
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
@@ -317,10 +318,11 @@ class DDiTBlock(nn.Module):
       nn.Linear(mlp_ratio * dim, dim, bias=True))
     self.dropout2 = nn.Dropout(dropout)
     self.dropout = dropout
-
-    self.adaLN_modulation = nn.Linear(cond_dim, 6 * dim, bias=True)
-    self.adaLN_modulation.weight.data.zero_()
-    self.adaLN_modulation.bias.data.zero_()
+    self.adaln = adaln
+    if self.adaln:
+      self.adaLN_modulation = nn.Linear(cond_dim, 6 * dim, bias=True)
+      self.adaLN_modulation.weight.data.zero_()
+      self.adaLN_modulation.bias.data.zero_()
 
   def _get_bias_dropout_scale(self):
     if self.training:
@@ -359,7 +361,7 @@ class DDiTBlock(nn.Module):
       key=qkv[:, :, 1],
       value=qkv[:, :, 2],
       attn_mask=mask,
-      is_causal=False,
+      is_causal=self.causal,
       scale=1 / math.sqrt(scale))
     x = x.transpose(1, 2)
     x = einops.rearrange(x, 'b s h d -> b s (h d)')
@@ -376,12 +378,16 @@ class DDiTBlock(nn.Module):
               sample_mode=False, store_kv=False):
     bias_dropout_scale_fn = self._get_bias_dropout_scale()
 
-    (shift_msa, scale_msa, gate_msa, shift_mlp,
-     scale_mlp, gate_mlp) = self.adaLN_modulation(c)[:, None].chunk(6, dim=2)
+    if self.adaln:
+      (shift_msa, scale_msa, gate_msa, shift_mlp,
+      scale_mlp, gate_mlp) = self.adaLN_modulation(c)[:, None].chunk(6, dim=2)
 
     # attention operation
     x_skip = x
-    x = modulate_fused(self.norm1(x), shift_msa, scale_msa)
+    if self.adaln:
+      x = modulate_fused(self.norm1(x), shift_msa, scale_msa)
+    else:
+      x = self.norm1(x)
 
     # get qkvs
     if mask is not None and not sample_mode:
@@ -399,17 +405,23 @@ class DDiTBlock(nn.Module):
     else:
       raise ValueError('Unknown attention backend')
 
-    x = bias_dropout_scale_fn(self.attn_out(x),
+    # mlp operation
+    if self.adaln:
+      x = bias_dropout_scale_fn(self.attn_out(x),
                               None,
                               gate_msa,
                               x_skip,
                               self.dropout)
-
-    # mlp operation
-    x = bias_dropout_scale_fn(
-      self.mlp(modulate_fused(
-        self.norm2(x), shift_mlp, scale_mlp)),
-      None, gate_mlp, x, self.dropout)
+      x = bias_dropout_scale_fn(
+        self.mlp(modulate_fused(
+          self.norm2(x), shift_mlp, scale_mlp)),
+        None, gate_mlp, x, self.dropout)
+    else:
+      x = bias_dropout_scale_fn(self.attn_out(x),
+                              None, torch.ones_like(x), x_skip, self.dropout)
+      x = bias_dropout_scale_fn(
+        self.mlp(self.norm2(x)),
+        None, torch.ones_like(x), x, self.dropout)
     return x
 
 
@@ -424,23 +436,28 @@ class EmbeddingLayer(nn.Module):
 
 
 class DDitFinalLayer(nn.Module):
-  def __init__(self, hidden_size, out_channels, cond_dim):
+  def __init__(self, hidden_size, out_channels, cond_dim, adaln=True):
     super().__init__()
     self.norm_final = LayerNorm(hidden_size)
     self.linear = nn.Linear(hidden_size, out_channels)
     self.linear.weight.data.zero_()
     self.linear.bias.data.zero_()
 
-    self.adaLN_modulation = nn.Linear(cond_dim,
-                                      2 * hidden_size,
-                                      bias=True)
-    self.adaLN_modulation.weight.data.zero_()
-    self.adaLN_modulation.bias.data.zero_()
+    self.adaln = adaln
+    if self.adaln:
+      self.adaLN_modulation = nn.Linear(cond_dim,
+                                        2 * hidden_size,
+                                        bias=True)
+      self.adaLN_modulation.weight.data.zero_()
+      self.adaLN_modulation.bias.data.zero_()
 
 
   def forward(self, x, c):
-    shift, scale = self.adaLN_modulation(c)[:, None].chunk(2, dim=2)
-    x = modulate_fused(self.norm_final(x), shift, scale)
+    if self.adaln:
+      shift, scale = self.adaLN_modulation(c)[:, None].chunk(2, dim=2)
+      x = modulate_fused(self.norm_final(x), shift, scale)
+    else:
+      x = self.norm_final(x)
     x = self.linear(x)
     return x
 
@@ -460,8 +477,10 @@ class DITBackbone(nn.Module):
     self.vocab_embed = EmbeddingLayer(
       config.hidden_dim,
       config.vocab_size)
-    self.sigma_map = TimestepEmbedder(
-      config.cond_dim)
+    self.adaln = config.adaln
+    if self.adaln:
+      self.sigma_map = TimestepEmbedder(
+        config.cond_dim)
     self.rotary_emb = Rotary(
       config.hidden_dim // config.n_heads)
 
@@ -472,14 +491,17 @@ class DITBackbone(nn.Module):
                               config.hidden_dim,
                               config.n_heads,
                               config.cond_dim,
+                              causal=config.causal,
                               dropout=config.dropout,
+                              adaln=config.adaln,
                               attn_backend=config.attn_backend,))
     self.blocks = nn.ModuleList(blocks)
 
     self.output_layer = DDitFinalLayer(
       config.hidden_dim,
       config.vocab_size,
-      config.cond_dim)
+      config.cond_dim,
+      adaln=config.adaln)
     if self.cross_attn:
       self.gen_mask(config.model_length, self.block_size, attn_backend=config.attn_backend)
     self.precision = torch.float32
@@ -505,13 +527,15 @@ class DITBackbone(nn.Module):
 
   def forward(self, indices, sigma, sample_mode=False,
              store_kv=False, output_hidden_states=False):
-    if not self.config.time_conditioning:
+    if not self.config.time_conditioning and self.adaln:
       sigma = torch.zeros_like(sigma)
     all_hidden_states = []
     x = self.vocab_embed(indices)
     if output_hidden_states:
       all_hidden_states.append(x)
-    c = F.silu(self.sigma_map(sigma))
+    c = None
+    if self.adaln:
+      c = F.silu(self.sigma_map(sigma))
     if self.cross_attn:
       n = self.mask.shape[-1] // 2
       rotary_cos_sin = self.rotary_emb(x[:, :n])

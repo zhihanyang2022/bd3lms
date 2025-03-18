@@ -412,14 +412,7 @@ class AR(DDIT):
           x, rotary_cos_sin, None, seqlens=None
         )
       output = self.output_layer(x, None)
-
-    # log prob at the mask index = - infinity
-    output[:, :, self.mask_index] = self.neg_infinity
-
-    # Normalize the logits such that x.exp() is
-    # a probability distribution over vocab_size.
-    # x = x - torch.logsumexp(x, dim=-1, keepdim=True)
-    return output.log_softmax(-1)
+    return output
 
   @torch.no_grad()
   def forward_incremental(self, xt, kv_caches=None):

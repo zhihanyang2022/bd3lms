@@ -6,6 +6,7 @@ import omegaconf
 import rich.syntax
 import rich.tree
 import torch
+import transformers
 
 import dataloader
 import diffusion
@@ -166,15 +167,23 @@ def _train(config, logger, tokenizer):
     config, tokenizer)
   _print_batch(train_ds, valid_ds, tokenizer)
 
-  if (config.training.from_pretrained is not None
-        and utils.fsspec_exists(config.training.from_pretrained)) \
-      and ckpt_path is None:
+  if config.training.from_pretrained is not None and ckpt_path is None:
     logger.info(f'Loading pretrained model from {config.training.from_pretrained}')
-    model = diffusion.Diffusion.load_from_checkpoint(
-      config.training.from_pretrained,
-      tokenizer=tokenizer,
-      config=config,
-      strict=False)
+    # load pretraining checkpoint
+    if 'kuleshov-group/' in config.training.from_pretrained:
+      # load from hf
+      model = diffusion.Diffusion(config, tokenizer=tokenizer)
+      state_dict = transformers.AutoModelForMaskedLM.from_pretrained(
+          config.training.from_pretrained,
+          trust_remote_code=True
+      ).state_dict()
+      model.load_state_dict(state_dict)
+    else:
+      model = diffusion.Diffusion.load_from_checkpoint(
+        config.training.from_pretrained,
+        tokenizer=tokenizer,
+        config=config,
+        strict=False)
     # add buffers for grid search
     model.register_buffer('sampling_eps_min', torch.tensor(
       config.training.sampling_eps_min))

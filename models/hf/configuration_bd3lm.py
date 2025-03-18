@@ -15,7 +15,9 @@ class BD3LMConfig(transformers.PretrainedConfig):
     vocab_size: int = 50258,
     model_length: int = 1024,
     cross_attn: bool = True,
+    adaln: bool = True,
     attn_backend: str = 'flex',
+    causal: bool = False,
     hidden_dim: int = 768,
     cond_dim: int = 129,
     n_blocks: int = 12,
@@ -29,7 +31,9 @@ class BD3LMConfig(transformers.PretrainedConfig):
     super().__init__(**kwargs)
     self.block_size = block_size
     self.cross_attn = cross_attn
+    self.adaln = adaln
     self.attn_backend = attn_backend
+    self.causal = causal
     self.vocab_size = vocab_size
     self.model_length = model_length
     self.hidden_dim = hidden_dim

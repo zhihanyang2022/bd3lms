@@ -17,7 +17,6 @@ srun python -u main.py \
     loader.eval_batch_size=128 \
     model=small \
     algo=sedd \
-    algo.ignore_bos=true \
     data=lm1b-wrap \
     model.length=128 \
     eval.checkpoint_path=/share/kuleshov/ma2238/textdiffusion/checkpoints/mari-lm1b-sedd128-v2/checkpoints/last.ckpt \

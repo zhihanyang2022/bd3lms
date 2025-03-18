@@ -18,6 +18,7 @@ srun python -u main.py \
     model=small \
     algo=mdlm \
     algo.backbone=hf_dit \
+    algo.ignore_bos=false \
     data=openwebtext-split \
     model.length=1024 \
     eval.checkpoint_path=kuleshov-group/mdlm-owt \

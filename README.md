@@ -67,13 +67,13 @@ sbatch scripts/train/train_owt_bd3lm.sh
 ### Checkpoints
 
 We have uploaded BD3-LMs trained on OpenWebText using block sizes 4, 8, 16 for 1M training steps to HuggingFace 🤗:
-[kuleshov-group/bd3-lms](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f) BD3-LMs are finetuned from an MDLM checkpoint trained on OpenWebText for 850K gradient updates. We release the pretraining checkpoint in this [Google Drive folder](https://drive.google.com/drive/folders/1Vm4YZBX7bzVuHhIbkY1RHTUsf8v71oew?usp=sharing).
+[kuleshov-group/bd3-lms](https://huggingface.co/collections/kuleshov-group/bd3-lms-67be95f81b96b15fec50d53f) BD3-LMs are finetuned from an MDLM checkpoint trained on OpenWebText for 850K gradient updates. We release the pretraining checkpoint on HuggingFace: [kuleshov-group/bd3lm-owt-block_size1024-pretrain](https://huggingface.co/kuleshov-group/bd3lm-owt-block_size1024-pretrain)
 
 
 The MDLM baseline is also found on the HuggingFace:
 [kuleshov-group/mdlm-owt](https://huggingface.co/kuleshov-group/mdlm-owt). The AR and SEDD baselines trained on OpenWebText in this [Google Drive folder](https://drive.google.com/drive/folders/16LuuptK7Xfk-vzhQYZBZ0SA-B-BFluau?usp=sharing).
 
-For arbitrary-length sequence generation, we compare with AR, MDLM (supported as an inference-only technique and does not feature a training objective), and SSD-LM. In order to generate sequences longer than the training context size (fixed at 1024 tokens for OWT), we retrained AR and MDLM from Sahoo et. al without artificially injecting BOS/EOS tokens in the context. We also provide these checkpoints in this [Google Drive folder](https://drive.google.com/drive/folders/1Vm4YZBX7bzVuHhIbkY1RHTUsf8v71oew?usp=sharing).
+For arbitrary-length sequence generation, we compare with AR, SEDD, and MDLM (supported as an inference-only technique and does not feature a training objective), and SSD-LM. In order to generate sequences longer than the training context size (fixed at 1024 tokens for OWT), we retrained AR and MDLM from Sahoo et. al without artificially injecting BOS/EOS tokens in the context. We also provide these checkpoints on HuggingFace: [kuleshov-group/mdlm-noeos-owt](https://huggingface.co/kuleshov-group/mdlm-noeos-owt), [kuleshov-group/sedd-noeos-owt](https://huggingface.co/kuleshov-group/sedd-noeos-owt), [kuleshov-group/ar-noeos-owt](https://huggingface.co/kuleshov-group/ar-noeos-owt).
 
 ## Reproducing Experiments
 
@@ -143,7 +143,7 @@ python -u main.py \
     data=openwebtext-split \
     data.insert_valid_special=False \
     model.length=1024 \
-    model.attn_backend=sdpa \
+    model.attn_backend=flex \
     block_size=${BLOCK_SIZE} \
     eval.checkpoint_path=kuleshov-group/bd3lm-owt-block_size${BLOCK_SIZE} \
     wandb=null \
@@ -154,7 +154,7 @@ python -u main.py \
 To train BD3-LMs, use `mode=train` (default mode). Example scripts are provided in `scripts/train/train_owt*.sh`. Here's an example training script on OpenWebText:
 ```bash
 BLOCK_SIZE=4 # we recommend 4, 8, or 16. must be a factor of the context length
-PRETRAIN_CKPT=$PWD/bd3lm_base_owt_850k.ckpt # to train from scratch, set to null
+PRETRAIN_CKPT=kuleshov-group/bd3lm-owt-block_size1024-pretrain # to train from scratch, set to null
 
 python -u main.py \
     loader.global_batch_size=512 \
@@ -163,12 +163,13 @@ python -u main.py \
     loader.eval_batch_size=8 \
     model=small \
     algo=bd3lm \
+    algo.clip_search_widths=[0.5,0.6,0.7,0.8,0.9] \
     data=openwebtext-split \
     model.length=1024 \
     block_size=$BLOCK_SIZE \
     wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
     mode=train \
-    model.attn_backend=sdpa \
+    model.attn_backend=flex \
     training.from_pretrained=$PRETRAIN_CKPT
 ```
 The arguments `loader.batch_size` and `loader.eval_batch_size` allow you to control the batch size per GPU. If `loader.batch_size * num_gpus` is less than the global_batch_size, PyTorch Lightning will resort to gradient accumulation. You can also launch a training job on Slurm using the command: `sbatch scripts/train/train_owt_bd3lm.sh`.
@@ -179,11 +180,11 @@ This repository was built off of [MDLM](https://github.com/kuleshov-group/mdlm) 
 ## Citation
 ```
 @inproceedings{
-  arriola2025block,
-  title={Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models},
-  author={Marianne Arriola and Subham Sekhar Sahoo and Aaron Gokaslan and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Justin T Chiu and Volodymyr Kuleshov},
-  booktitle={The Thirteenth International Conference on Learning Representations},
-  year={2025},
-  url={https://openreview.net/forum?id=tyEyYT267x}
+arriola2025block,
+title={Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models},
+author={Marianne Arriola and Aaron Gokaslan and Justin T Chiu and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Subham Sekhar Sahoo and Volodymyr Kuleshov},
+booktitle={The Thirteenth International Conference on Learning Representations},
+year={2025},
+url={https://openreview.net/forum?id=tyEyYT267x}
 }
 ```
