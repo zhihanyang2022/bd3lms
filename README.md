@@ -185,6 +185,6 @@ title={Block Diffusion: Interpolating Between Autoregressive and Diffusion Langu
 author={Marianne Arriola and Aaron Gokaslan and Justin T Chiu and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Subham Sekhar Sahoo and Volodymyr Kuleshov},
 booktitle={The Thirteenth International Conference on Learning Representations},
 year={2025},
-url={https://openreview.net/forum?id=tyEyYT267x}
+url={https://arxiv.org/abs/2503.09573}
 }
 ```
