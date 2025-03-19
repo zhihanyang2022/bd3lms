@@ -19,8 +19,8 @@ PRETRAIN_CKPT=kuleshov-group/bd3lm-owt-block_size1024-pretrain # to train from s
 python -u main.py \
     loader.global_batch_size=512 \
     loader.eval_global_batch_size=512 \
-    loader.batch_size=8 \
-    loader.eval_batch_size=8 \
+    loader.batch_size=16 \
+    loader.eval_batch_size=16 \
     model=small \
     algo=bd3lm \
     algo.clip_search_widths=[0.5,0.6,0.7,0.8,0.9] \

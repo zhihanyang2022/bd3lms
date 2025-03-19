@@ -16,8 +16,8 @@
 python -u main.py \
     loader.global_batch_size=512 \
     loader.eval_global_batch_size=512 \
-    loader.batch_size=8 \
-    loader.eval_batch_size=8 \
+    loader.batch_size=16 \
+    loader.eval_batch_size=16 \
     model=small \
     algo=ar \
     data=openwebtext-split \
