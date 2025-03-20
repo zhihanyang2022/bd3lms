@@ -31,4 +31,5 @@ python -u main.py \
     wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
     mode=train \
     model.attn_backend=flex \
+    training.resample=True \
     training.from_pretrained=$PRETRAIN_CKPT
