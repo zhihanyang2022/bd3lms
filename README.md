@@ -170,6 +170,7 @@ python -u main.py \
     wandb.name=bd3lm-owt-block_size${BLOCK_SIZE} \
     mode=train \
     model.attn_backend=flex \
+    training.resample=True \
     training.from_pretrained=$PRETRAIN_CKPT
 ```
 The arguments `loader.batch_size` and `loader.eval_batch_size` allow you to control the batch size per GPU. If `loader.batch_size * num_gpus` is less than the global_batch_size, PyTorch Lightning will resort to gradient accumulation. You can also launch a training job on Slurm using the command: `sbatch scripts/train/train_owt_bd3lm.sh`.
