@@ -477,7 +477,6 @@ class Diffusion(L.LightningModule):
       self, x, xt, move_indices, p, block_size, sampling_eps_min, sampling_eps_max):
     """Resamples x_t if the percentage of masked tokens is outside the bounds
     defined by sampling_eps_min and sampling_eps_max."""
-    assert self.training
     perc_masked = (xt == self.mask_index).float().sum(-1) / block_size
     while (perc_masked < sampling_eps_min).any() or \
       (perc_masked > sampling_eps_max).any():
@@ -498,7 +497,8 @@ class Diffusion(L.LightningModule):
       xt = torch.where(move_indices, self.mask_index, x)
       xt = xt.reshape(xt.shape[0], -1, block_size)
       perc_masked = (xt == self.mask_index).float().sum(-1) / block_size
-
+    return xt
+  
   def q_xt(
       self, x, p, block_size=None, sampling_eps_min=None, sampling_eps_max=None):
     """Computes the noisy sample xt.
