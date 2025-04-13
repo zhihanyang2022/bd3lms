@@ -304,6 +304,7 @@ class DDiTBlock(nn.Module):
     self.n_heads = n_heads
     self.attn_backend = attn_backend
     self.kv_cache = None
+    self.cache_idx = 0
     self.causal = causal
 
     self.norm1 = LayerNorm(dim)
@@ -333,13 +334,18 @@ class DDiTBlock(nn.Module):
   def get_qkv(self, x, rotary_cos_sin, store_kv=False):
     # compute qkv (potentially use cache)
     if self.kv_cache is not None:
-      new_qkv = self.attn_qkv(x[:, -self.block_size:])
-      qkv = torch.cat((self.kv_cache, new_qkv), dim=1)
+      new_qkv = self.attn_qkv(x)
+      self.kv_cache[:, self.cache_idx:self.cache_idx+self.block_size] = new_qkv
+      qkv = self.kv_cache[:, :self.cache_idx+self.block_size].clone()
     else:
       qkv = self.attn_qkv(x)
     # store kv cache in a sliding window (can't exceed context len)
     if store_kv:
-      self.kv_cache = qkv[:, -(self.n-self.block_size):]
+      self.cache_idx += self.block_size
+      if self.cache_idx >= self.n:
+        # left-shift the cache
+        self.cache_idx = self.n - self.block_size
+        self.kv_cache[:, :-self.block_size] = self.kv_cache[:, self.block_size:].clone()
 
     qkv = einops.rearrange(
       qkv,
@@ -404,6 +410,9 @@ class DDiTBlock(nn.Module):
       x = self.cross_attn(x, qkv, mask=mask)
     else:
       raise ValueError('Unknown attention backend')
+    
+    if self.kv_cache is not None:
+      x = x[:, -self.block_size:]
 
     # mlp operation
     if self.adaln:
@@ -422,6 +431,7 @@ class DDiTBlock(nn.Module):
       x = bias_dropout_scale_fn(
         self.mlp(self.norm2(x)),
         None, torch.ones_like(x), x, self.dropout)
+
     return x
 
 
@@ -537,13 +547,23 @@ class DITBackbone(nn.Module):
     if self.adaln:
       c = F.silu(self.sigma_map(sigma))
     if self.cross_attn:
-      n = self.mask.shape[-1] // 2
-      rotary_cos_sin = self.rotary_emb(x[:, :n])
       mask = self.mask.to(x.device)
+      n = self.mask.shape[-1] // 2
       # use block-causal mask only during sampling
-      if sample_mode:
-        mask = mask[
-          n:n+x.shape[1], n:n+x.shape[1]]
+      if not sample_mode:
+        rotary_cos_sin = self.rotary_emb(x[:, :self.n])
+      else:
+        if self.blocks[0].kv_cache is not None:
+          mask = None
+          accum_length = self.blocks[0].cache_idx + self.block_size
+          # positional encodings for cache
+          x_full = torch.zeros((
+            x.shape[0], accum_length, x.shape[2]), device=x.device)
+          rotary_cos_sin = self.rotary_emb(x_full)
+        else:
+          rotary_cos_sin = self.rotary_emb(x[:, :n])
+          mask = mask[
+            n:n+x.shape[1], n:n+x.shape[1]]
     else:
       mask = None
       rotary_cos_sin = self.rotary_emb(x)
@@ -582,10 +602,16 @@ class BD3LM(transformers.PreTrainedModel):
       self.register_buffer(
         'sampling_eps_max',
         torch.tensor(config.sampling_eps_max))
-
-  def reset_kv_cache(self):
+    
+  def reset_kv_cache(self, eval_batch_size=1):
     for block in self.backbone.blocks:
-      block.kv_cache = None
+      block.kv_cache = torch.zeros(
+        eval_batch_size,
+        self.config.model_length,
+        self.config.hidden_dim * 3,
+        device='cuda',
+        dtype=torch.bfloat16)
+      block.cache_idx = 0
 
   def forward(
       self,

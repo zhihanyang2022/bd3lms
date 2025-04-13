@@ -565,14 +565,20 @@ class Diffusion(L.LightningModule):
     mask_prob = move_chance_s / move_chance_t
 
     if p_x0 is None:
-      p_x0 = self.forward(x,
+      if self.config.sampling.kv_cache:
+        p_x0 = self.forward(x[:, -self.block_size:],
                         sigma_t,
                         sample_mode=True).to(torch.float64)
+      else:   
+        p_x0 = self.forward(x,
+                          sigma_t,
+                          sample_mode=True).to(torch.float64)
+        p_x0 = p_x0[:, -self.block_size:]
       p_x0 = p_x0.exp()
       p_x0 = self._nucleus_sample(p_x0)
 
     if self.config.sampling.first_hitting:
-      x_block = _sample_categorical(p_x0[:, -self.block_size:])
+      x_block = _sample_categorical(p_x0)
       # randomly and uniformly select an index in the block (among masked tokens)
       num_masked = (x[:, -self.block_size:] == self.mask_index).sum(-1)
       ind = torch.randint(0, num_masked, (x_block.shape[0],))
@@ -582,17 +588,16 @@ class Diffusion(L.LightningModule):
     else:
       q_xs = p_x0 * (1 - mask_prob)
       q_xs[:, :, self.mask_index] = mask_prob.squeeze(-1)
-      x_block = _sample_categorical(q_xs[:, -self.block_size:])  
+      x_block = _sample_categorical(q_xs)
     copy_flag = (x[:, -self.block_size:] != self.mask_index).to(x.dtype)
     x_block =  copy_flag * x[:, -self.block_size:] + (1 - copy_flag) * x_block
     x_new = torch.cat((x[:, :-self.block_size], x_block), dim=-1)
 
     # compute kv cache if all tokens in a block are sampled
     if self.config.sampling.kv_cache and self.mask_index not in x_block:
-      _ = self.forward(x_new, sigma_t, sample_mode=True, store_kv=True)
+      _ = self.forward(x_block, sigma_t, sample_mode=True, store_kv=True)
 
     if not torch.allclose(x_new, x):
-      tokens_sampled = (x_new - x) != 0
       return None, x_new
     else:
       return p_x0, x_new
@@ -987,7 +992,7 @@ class Diffusion(L.LightningModule):
     
     # reset kvs
     if self.config.sampling.kv_cache:
-      self.backbone.reset_kv_cache()
+      self.backbone.reset_kv_cache(eval_batch_size=self.config.loader.eval_batch_size)
 
     for stride_num in tqdm(range(num_strides)):
       # sample next block

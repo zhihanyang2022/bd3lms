@@ -458,6 +458,7 @@ class DDiTBlock(nn.Module):
     self.dropout2 = nn.Dropout(dropout)
     self.dropout = dropout
     self.kv_cache = None
+    self.cache_idx = 0
 
     if self.adaLN:
       self.adaLN_modulation = nn.Linear(cond_dim, 6 * dim)
@@ -474,14 +475,19 @@ class DDiTBlock(nn.Module):
   def get_qkv(self, x, rotary_cos_sin, store_kv=False):
     # compute qkv (potentially use cache)
     if self.kv_cache is not None:
-      new_qkv = self.attn_qkv(x[:, -self.block_size:])
-      qkv = torch.cat((self.kv_cache, new_qkv), dim=1)
+      new_qkv = self.attn_qkv(x)
+      self.kv_cache[:, self.cache_idx:self.cache_idx+self.block_size] = new_qkv
+      qkv = self.kv_cache[:, :self.cache_idx+self.block_size].clone()
     else:
       qkv = self.attn_qkv(x)
     # store kv cache in a sliding window (can't exceed context len)
     if store_kv:
-      self.kv_cache = qkv[:, -(self.max_seqlen-self.block_size):].clone()
-      
+      self.cache_idx += self.block_size
+      if self.cache_idx >= self.max_seqlen:
+        # left-shift the cache
+        self.cache_idx = self.max_seqlen - self.block_size
+        self.kv_cache[:, :-self.block_size] = self.kv_cache[:, self.block_size:].clone()
+
     qkv = einops.rearrange(
       qkv,
       'b s (three h d) -> b s three h d',
@@ -589,6 +595,8 @@ class DDiTBlock(nn.Module):
       x = self.cross_attn(qkv, mask=mask)
     else:
       raise ValueError('Unknown attention backend')
+    if self.kv_cache is not None:
+      x = x[:, -self.block_size:]
     x = self.attn_mlp(x, c, gate_msa, gate_mlp, shift_mlp, scale_mlp, x_skip)
     return x
    
@@ -642,7 +650,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     self.adaLN = not self.causal or getattr(config.model, 'adaln', False)
     self.config = config
     self.vocab_size = vocab_size
-    block_size = config.block_size
+    self.block_size = config.block_size
     dim = config.model.hidden_size
     cond_dim = config.model.cond_dim
     self.n_heads = config.model.n_heads
@@ -653,6 +661,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
       self.sigma_map = TimestepEmbedder(cond_dim)
     self.rotary_emb = Rotary(dim // config.model.n_heads)
     self.attn_backend = getattr(config.model, 'attn_backend', 'flash_attn')
+    self.max_seqlen = 1024
 
     blocks = []
     for _ in range(config.model.n_blocks):
@@ -674,8 +683,9 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
           cond_dim=cond_dim,
           adaLN=self.adaLN,
           dropout=config.model.dropout,
-          block_size=block_size,
-          attn_backend=self.attn_backend)
+          block_size=self.block_size,
+          attn_backend=self.attn_backend,
+          max_seqlen=self.max_seqlen)
       blocks.append(block)
     self.blocks = nn.ModuleList(blocks)
     self.output_layer = DDiTFinalLayer(
@@ -685,7 +695,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
       adaLN=self.adaLN,
       tie_word_embeddings=config.model.tie_word_embeddings)
     if config.algo.cross_attn:
-      self.gen_mask(config.model.length, block_size, self.attn_backend)
+      self.gen_mask(config.model.length, self.block_size, self.attn_backend)
 
   def _get_bias_dropout_scale(self):
     if self.training:
@@ -708,7 +718,13 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     
   def reset_kv_cache(self):
     for block in self.blocks:
-      block.kv_cache = None
+      block.kv_cache = torch.zeros(
+        self.config.loader.eval_batch_size,
+        self.max_seqlen,
+        self.config.model.hidden_size * 3,
+        device='cuda',
+        dtype=torch.bfloat16)
+      block.cache_idx = 0
 
   def forward(self, indices, sigma, sample_mode=False, store_kv=False):
     x = self.vocab_embed(indices)
@@ -719,12 +735,26 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
     cross_attn = hasattr(self, 'block_diff_mask')
     if cross_attn:
-      rotary_cos_sin = self.rotary_emb(x[:, :self.n])
       mask = self.block_diff_mask
-      # index block-causal mask only during sampling
+      # special cases for sampling
       if sample_mode:
-        mask = mask[
-          self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
+        if self.config.sampling.kv_cache:
+          # full cross-attention to kv cache
+          mask = None
+          accum_length = self.blocks[0].cache_idx + self.block_size
+          # positional encodings for cache
+          x_full = torch.zeros((
+            x.shape[0], accum_length, x.shape[2]), device=x.device)
+          rotary_cos_sin = self.rotary_emb(x_full)
+        else:
+          # index block-causal mask only during sampling
+          mask = mask[
+            self.n:self.n+x.shape[1], self.n:self.n+x.shape[1]]
+          rotary_cos_sin = self.rotary_emb(x)
+
+      else:
+        rotary_cos_sin = self.rotary_emb(x[:, :self.n])
+
     else:
       rotary_cos_sin = self.rotary_emb(x)
       mask = None

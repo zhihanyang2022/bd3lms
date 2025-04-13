@@ -51,9 +51,11 @@ In this repo, we provide:
 To get started, create a conda environment containing the required dependencies.
 
 ```bash
-conda env create -f requirements.yaml
+conda create --name bd3lm python=3.9
 conda activate bd3lm
+pip install -r requirements.txt
 ```
+While BD3-LMs don't require FlashAttention, evaluating baselines from MDLM require `flash-attn==2.5.6`
 
 Create the following directories to store saved models and slurm logs:
 ```bash
