@@ -21,6 +21,8 @@ python -u main.py \
     model=small \
     algo=mdlm \
     data=openwebtext-split \
+    data.insert_train_special=False \
+    data.insert_valid_special=False \
     data.insert_valid_eos=False \
     model.length=1024 \
     wandb.name=mdlm-owt

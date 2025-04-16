@@ -25,6 +25,8 @@ python -u main.py \
     algo=bd3lm \
     algo.clip_search_widths=[0.5,0.6,0.7,0.8,0.9] \
     data=openwebtext-split \
+    data.insert_train_special=False \
+    data.insert_valid_special=False \
     data.insert_valid_eos=False \
     model.length=1024 \
     block_size=${BLOCK_SIZE} \
