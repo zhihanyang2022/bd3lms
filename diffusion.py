@@ -667,11 +667,14 @@ class Diffusion(L.LightningModule):
       return self.tokenizer.batch_decode(samples)
     if self.sampler == 'semi_ar':
       for _ in range(self.config.sampling.num_sample_batches):
+        import time
+        t0 = time.perf_counter()
         sample_i, nfes = self._semi_ar_sampler(
           n_samples=batch_size_per_gpu,
           num_strides=(seqlen // self.block_size), 
           num_steps=num_steps,
           seqlen=seqlen)
+        print(time.perf_counter() - t0)
         samples.append(sample_i)
         self.metrics.nfes.update(nfes)
         self.metrics.gen_nfes.append(nfes)
