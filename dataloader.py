@@ -316,9 +316,9 @@ def get_dataset(
     streaming=False, revision : Optional[str]=None, insert_eos=True, insert_special_tokens=True):
   eos_tag = ''
   if not insert_eos:
-    eos_tag = '_eosFalse'
+    eos_tag += '_eosFalse'
   if not insert_special_tokens:
-    eos_tag = '_specialFalse'
+    eos_tag += '_specialFalse'
   if wrap:
     filename = f'{dataset_name}_{mode}_bs{block_size}_wrapped{eos_tag}.dat'
   else:

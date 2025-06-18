@@ -106,7 +106,12 @@ def generate_samples(config, logger, tokenizer):
   if config.sampling.var_length:
     print(text_samples)
     save_dict['samples'] = ['' for _ in range(len(text_samples))]
-  utils.update_and_save_csv(save_dict, csv_path)
+  # utils.update_and_save_csv(save_dict, csv_path)
+  import json
+  # fdir = "/".join(csv_path.split('/')[:-1])
+  # os.makedirs(fdir, exists_ok=True)
+  with fsspec.open(csv_path + '.json', 'a') as f:
+    json.dump(save_dict, f)
   return text_samples
 
 def _ppl_eval(config, logger, tokenizer):

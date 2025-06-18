@@ -1,4 +1,5 @@
 .DS_Store
+slurm/
 
 .hf_cache
 test/

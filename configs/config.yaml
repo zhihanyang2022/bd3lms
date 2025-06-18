@@ -32,6 +32,7 @@ sampling:
   nucleus_p: 1.0
   first_hitting: True # should be set to true when T >> block_size
   kv_cache: False
+  num_tries: 1
 
 training:
   ema: 0.9999

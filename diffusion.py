@@ -667,16 +667,11 @@ class Diffusion(L.LightningModule):
       return self.tokenizer.batch_decode(samples)
     if self.sampler == 'semi_ar':
       for _ in range(self.config.sampling.num_sample_batches):
-        sample_i, num_tries = None, 0
-        while sample_i is None:
-          num_tries += 1
-          sample_i, nfes = self._semi_ar_sampler(
-            n_samples=batch_size_per_gpu,
-            num_strides=(seqlen // self.block_size), 
-            num_steps=num_steps,
-            seqlen=seqlen)
-          if num_tries > 10:
-            raise ValueError('Sampling failed.')
+        sample_i, nfes = self._semi_ar_sampler(
+          n_samples=batch_size_per_gpu,
+          num_strides=(seqlen // self.block_size), 
+          num_steps=num_steps,
+          seqlen=seqlen)
         samples.append(sample_i)
         self.metrics.nfes.update(nfes)
         self.metrics.gen_nfes.append(nfes)
@@ -718,7 +713,7 @@ class Diffusion(L.LightningModule):
       samples,
       self.config.model.length,
       self.config.loader.eval_batch_size,
-      self.device)
+      self.device)  # looks like a harmless bug
     return samples
 
   def get_score(self, x, sigma):
@@ -1042,13 +1037,13 @@ class Diffusion(L.LightningModule):
         x_accum[:, fwd_idx] = x_next
 
       # check if we need to resample (or stop sampling for variable-length sampling)
-      if x_accum.shape[1] > 256:
-        stop, x_accum = self._check_stop_conds(x_accum)
-        if (stop and not self.config.sampling.var_length) \
-          or (stop and x.shape[-1] == 1):
-          return None, None
-        elif stop:
-          break
+      # if x_accum.shape[1] > 256:
+      #   stop, x_accum = self._check_stop_conds(x_accum)
+      #   if (stop and not self.config.sampling.var_length) \
+      #     or (stop and x.shape[-1] == 1):
+      #     return None, None
+      #   elif stop:
+      #     break
     return x_accum, sampling_steps
   
   def _compute_entropy(self, x):

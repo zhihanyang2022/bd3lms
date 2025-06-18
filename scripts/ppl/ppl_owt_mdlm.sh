@@ -1,26 +1,29 @@
 #!/bin/bash
-#SBATCH -J ppl_owt_mdlm                # Job name
-#SBATCH -o watch_folder/%x_%j.out     # log file (out & err)
-#SBATCH -e watch_folder/%x_%j.err     # log file (out & err)
-#SBATCH -N 1                          # Total number of nodes requested
-#SBATCH --get-user-env                # retrieve the users login environment
-#SBATCH --mem=32G                  # server memory requested (per node)
-#SBATCH -t 960:00:00                  # Time limit (hh:mm:ss)
-#SBATCH --partition=gpu          # Request partition
-#SBATCH --constraint="[a5000|a6000|3090|a100]"
+#SBATCH -J eval_owt_bd3lm
+#SBATCH --partition=main
+#SBATCH --output=slurm/%j_%x.out
+#SBATCH --error=slurm/%j_%x.err
+#SBATCH -N 1
 #SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4                  # Type/number of GPUs needed
-#SBATCH --open-mode=append            # Do not overwrite logs
-#SBATCH --requeue                     # Requeue upon preemption
+#SBATCH --gres=gpu:4
+#SBATCH --open-mode=append
+
+# To enable preemption re-loading, set `hydra.run.dir` or 
+# `checkpointing.save_dir` explicitly.
+
+DATA_DIR=${HOME}/data/esolm
 
 srun python -u main.py \
-    loader.eval_batch_size=16 \
+    loader.eval_batch_size=32 \
     model=small \
+    model.attn_backend=sdpa \
     algo=mdlm \
-    algo.backbone=hf_dit \
-    algo.ignore_bos=false \
+    algo.backbone=dit \
+    algo.ignore_bos=true \
     data=openwebtext-split \
+    data.insert_valid_special=False \
     model.length=1024 \
-    eval.checkpoint_path=kuleshov-group/mdlm-owt \
+    eval.checkpoint_path=/mnt/weka/home/zhihan.yang/checkpoints/owt-mdlm-302860/checkpoints/14-250000.ckpt \
     wandb=null \
+    data.cache_dir=${DATA_DIR} \
     mode=ppl_eval > $PWD/logs/mdlm_owt.log
