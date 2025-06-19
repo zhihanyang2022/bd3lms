@@ -674,7 +674,14 @@ class Diffusion(L.LightningModule):
           num_strides=(seqlen // self.block_size), 
           num_steps=num_steps,
           seqlen=seqlen)
-        print(time.perf_counter() - t0)
+        dt = time.perf_counter() - t0
+        T = self.config.algo.T
+        import os
+        if not os.path.exists('/share/thickstun/zhihan/bd3lms/perf_results.csv'):
+          with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'w') as f:
+            f.write('length,alpha0,T,dt\n')
+        with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'a') as f:
+          f.write(f"{T},{dt}\n")
         samples.append(sample_i)
         self.metrics.nfes.update(nfes)
         self.metrics.gen_nfes.append(nfes)
