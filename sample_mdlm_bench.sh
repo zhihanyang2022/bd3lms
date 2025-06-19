@@ -12,10 +12,10 @@ python -u -m main \
     mode=sample_eval \
     eval.checkpoint_path=kuleshov-group/mdlm-owt-noeos \
     model.attn_backend=sdpa \
-    sampling.nucleus_p=1.0 \
+    sampling.nucleus_p=0.9 \
     sampling.kv_cache=false \
     sampling.logdir=/mnt/weka/home/zhihan.yang/samples/mdlm/bench \
-    sampling.num_sample_batches=100 \
+    sampling.num_sample_batches=3 \
     sampling.num_tries=1 \
     sampling.first_hitting=false
 echo
