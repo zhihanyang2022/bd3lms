@@ -1,4 +1,5 @@
 import math
+from multiprocessing import parent_process
 import typing
 
 import einops
@@ -353,7 +354,7 @@ class DDiTBlockCausal(nn.Module):
       else:
         qkv = apply_rotary_pos_emb_torchscript(
           qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
-          
+
     return qkv
 
   def cross_attn(self, qkv, mask=None):
@@ -581,6 +582,27 @@ class DDiTBlock(nn.Module):
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
       
     # attention
+    # if sample_mode:  # this is the real kv caching (angry)
+    #   print('real kv caching')
+    #   # torch.Size([512, 4, 3, 12, 64])
+    #   q, k, v = qkv.chunk(3, dim=2)
+    #   # q or k or v shape: [b ? h d]
+    #   q = q.squeeze(dim=2)
+    #   q = q[:, -self.block_size:]
+    #   k = k.squeeze(dim=2)
+    #   v = v.squeeze(dim=2)
+    #   scale = q.shape[-1] ** 0.5
+    #   # swap seq_len and num_heads
+    #   # q shape:   [b h block d]
+    #   # k/v shape: [b h s' d]
+    #   q = q.transpose(1, 2)
+    #   k = k.transpose(1, 2)
+    #   v = v.transpose(1, 2)
+    #   attn_scores = torch.matmul(q, k.transpose(-2, -1)) / scale
+    #   attn_weights = F.softmax(attn_scores, dim=-1)
+    #   x = torch.matmul(attn_weights, v).transpose(1, 2)
+    #   x = x.reshape(x.shape[0], self.block_size, 768)
+    # else:
     if self.attn_backend == 'flash_attn' and mask is None:
       qkv = einops.rearrange(qkv, 'b s ... -> (b s) ...')
       cu_seqlens = torch.arange(
@@ -663,6 +685,8 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     self.attn_backend = getattr(config.model, 'attn_backend', 'flash_attn')
     self.max_seqlen = 1024
 
+    print('from the local dit.py')
+
     blocks = []
     for _ in range(config.model.n_blocks):
       if self.causal:
@@ -716,7 +740,8 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     else:
       raise ValueError('Unknown attention backend')
     
-  def reset_kv_cache(self):
+  def reset_kv_cache(self, eval_batch_size):
+    del eval_batch_size
     for block in self.blocks:
       block.kv_cache = torch.zeros(
         self.config.loader.eval_batch_size,

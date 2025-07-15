@@ -33,6 +33,7 @@ sampling:
   first_hitting: True # should be set to true when T >> block_size
   kv_cache: False
   num_tries: 1
+  profile_throughput: False
 
 training:
   ema: 0.9999

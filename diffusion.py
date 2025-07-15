@@ -320,7 +320,8 @@ class Diffusion(L.LightningModule):
 
   def forward(self, x, sigma, sample_mode=False, store_kv=False):
     """Returns log score."""
-    sigma = self._process_sigma(sigma)
+    if not self.config.sampling.profile_throughput:
+      sigma = self._process_sigma(sigma)
     with torch.amp.autocast('cuda', dtype=torch.float32):
       if self.config.algo.name == 'bd3lm':
         logits = self.backbone(x, sigma,
@@ -676,12 +677,12 @@ class Diffusion(L.LightningModule):
           seqlen=seqlen)
         dt = time.perf_counter() - t0
         T = self.config.algo.T
-        import os
-        if not os.path.exists('/share/thickstun/zhihan/bd3lms/perf_results.csv'):
-          with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'w') as f:
-            f.write('length,alpha0,T,dt\n')
-        with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'a') as f:
-          f.write(f"{T},{dt}\n")
+        # import os
+        # if not os.path.exists('/share/thickstun/zhihan/bd3lms/perf_results.csv'):
+        #   with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'w') as f:
+        #     f.write('length,alpha0,T,dt\n')
+        # with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'a') as f:
+        #   f.write(f"{T},{dt}\n")
         samples.append(sample_i)
         self.metrics.nfes.update(nfes)
         self.metrics.gen_nfes.append(nfes)
@@ -980,6 +981,24 @@ class Diffusion(L.LightningModule):
       return None
     return x
 
+  def _sample_nfe(self, num_steps):
+    remaining_tokens = self.block_size  # crucial
+    num_tokens_to_unmask = []
+    dt = 1 / num_steps
+    # Assumes a log-linear schedule.
+    for t in np.linspace(1, dt, num_steps):
+      _, one_minus_alpha_t = self.noise(t)  # crucial
+      _, one_minus_alpha_s = self.noise(t - dt)
+      alpha_t = 1 - one_minus_alpha_t
+      alpha_s = 1 - one_minus_alpha_s
+      n_unmask = np.random.binomial(
+        remaining_tokens, (alpha_s - alpha_t) / (1 - alpha_t))
+      if n_unmask != 0:
+        num_tokens_to_unmask.append(n_unmask)
+        remaining_tokens -= n_unmask
+    assert remaining_tokens == 0
+    return len(num_tokens_to_unmask)
+
   @torch.no_grad
   def _semi_ar_sampler(
     self, n_samples, num_steps, num_strides, seqlen, context_size=1024):
@@ -1000,7 +1019,13 @@ class Diffusion(L.LightningModule):
     if self.config.sampling.kv_cache:
       self.backbone.reset_kv_cache(eval_batch_size=self.config.loader.eval_batch_size)
 
+    import time
+    torch.cuda.synchronize()
+    start_time = time.time()
+
+    # sampling_steps_per_block_list = []
     for stride_num in tqdm(range(num_strides)):
+      print(f'{stride_num+1} / {num_strides}')
       # sample next block
       if stride_num == 0:
         x_accum = self._sample_prior(n_samples, self.block_size).to(self.device)
@@ -1021,31 +1046,49 @@ class Diffusion(L.LightningModule):
 
       dt = 1 / num_steps
       p_x0_cache = None
-      timesteps = torch.linspace(1, 0, num_steps, device=self.device)
+      timesteps = torch.linspace(1, dt, num_steps, device=self.device)
       t = 1
-      for i in range(num_steps):
-        if self.mask_index not in x_accum:
-          break
+      # sampling_steps_per_block = 0
 
-        # faster (equivalent) sampler from zheng et al (2025)
-        if self.config.sampling.first_hitting:
-          u = np.random.rand()
-          num_masked = (x_accum[:, fwd_idx] == self.mask_index).sum(-1).item()
-          t *= u**(1 / num_masked)
-              
-        elif not self.config.sampling.first_hitting:
-          t = timesteps[i]
+      profile_throughput = self.config.sampling.profile_throughput
+      if profile_throughput:
+        assert self.config.sampling.kv_cache
+        nfe = self._sample_nfe(num_steps)
+        print('nfe', nfe)
+        sigma_t = torch.zeros(n_samples, device=x_accum.device)
+        for i in range(nfe):  # number of iterations to get all clean tokens
+          _ = self.backbone(x_accum[:, -self.block_size:], sigma_t, 
+                            sample_mode=True, store_kv=False)
+        # one extra network evaluation required for the last token
+        _ = self.forward(x_accum[:, -self.block_size:], sigma_t, 
+                          sample_mode=True, store_kv=True)
+      else:
+        for i in range(num_steps):
+          if self.mask_index not in x_accum:
+            break
 
-        p_x0_cache, x_next = self._ddpm_caching_update(
-            x=x_accum[:, fwd_idx],
-            t=t * ones,
-            dt=dt,
-            p_x0=p_x0_cache,)
-        if p_x0_cache is None:
-          sampling_steps += 1
-       
-        x_accum[:, fwd_idx] = x_next
+          # faster (equivalent) sampler from zheng et al (2025)
+          if self.config.sampling.first_hitting:
+            u = np.random.rand()
+            num_masked = (x_accum[:, fwd_idx] == self.mask_index).sum(-1).item()
+            t *= u**(1 / num_masked)
+                
+          elif not self.config.sampling.first_hitting:
+            t = timesteps[i]
 
+          p_x0_cache, x_next = self._ddpm_caching_update(
+              x=x_accum[:, fwd_idx],
+              t=t * ones,
+              dt=dt,
+              p_x0=p_x0_cache,)
+          if p_x0_cache is None:
+            sampling_steps += 1
+        
+          x_accum[:, fwd_idx] = x_next
+
+    torch.cuda.synchronize()
+    end_time = time.time()
+    print(f'Time taken: {end_time - start_time} seconds')
       # check if we need to resample (or stop sampling for variable-length sampling)
       # if x_accum.shape[1] > 256:
       #   stop, x_accum = self._check_stop_conds(x_accum)

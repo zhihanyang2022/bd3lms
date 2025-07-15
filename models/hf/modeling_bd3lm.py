@@ -404,15 +404,19 @@ class DDiTBlock(nn.Module):
     else:
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
 
-    if self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
-      x = self.cross_attn_flex(qkv, mask=mask)
-    elif self.attn_backend == 'sdpa' or not FLEX_ATTN_AVAILABLE:
-      x = self.cross_attn(x, qkv, mask=mask)
+    if sample_mode:
+      print(qkv.shape)
+      exit()
     else:
-      raise ValueError('Unknown attention backend')
-    
-    if self.kv_cache is not None:
-      x = x[:, -self.block_size:]
+      if self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
+        x = self.cross_attn_flex(qkv, mask=mask)
+      elif self.attn_backend == 'sdpa' or not FLEX_ATTN_AVAILABLE:
+        x = self.cross_attn(x, qkv, mask=mask)
+      else:
+        raise ValueError('Unknown attention backend')
+      
+      if self.kv_cache is not None:
+        x = x[:, -self.block_size:]
 
     # mlp operation
     if self.adaln:
@@ -477,6 +481,8 @@ class DITBackbone(nn.Module):
       self,
       config: BD3LMConfig):
     super().__init__()
+
+    print('ddddddit')
 
     self.config = config
     self.cross_attn = config.cross_attn
@@ -625,8 +631,8 @@ class BD3LM(transformers.PreTrainedModel):
     torch.Tensor, typing.Tuple,
     modeling_outputs.MaskedLMOutput]:
     """HF-compatible forward method."""
-    if sample_mode:
-      assert self.config.attn_backend == 'sdpa', 'Sampling only supported with SDPA'
+    # if sample_mode:
+    #   assert self.config.attn_backend == 'sdpa', 'Sampling only supported with SDPA'
 
     output_hidden_states = (
       output_hidden_states
