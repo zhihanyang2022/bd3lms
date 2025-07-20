@@ -12,6 +12,7 @@ from collections import OrderedDict
 
 import dataloader
 import metrics
+import metrics_esolm
 import models
 import noise_schedule
 import utils
@@ -93,6 +94,11 @@ class Diffusion(L.LightningModule):
 
     self.noise = noise_schedule.get_noise(self.config)
     self.metrics = metrics.Metrics(config)
+    # modified to use eval code from esolm codebase
+    self.metrics_esolm = metrics_esolm.Metrics(
+      gen_ppl_eval_model_name_or_path=config.eval.gen_ppl_eval_model_name_or_path,
+      eval_ppl_batch_size=config.eval.perplexity_batch_size
+    )
 
     if self.config.training.ema > 0:
       self.ema = models.ema.ExponentialMovingAverage(
@@ -151,6 +157,8 @@ class Diffusion(L.LightningModule):
   def to(self, *args, **kwargs):
     self = super().to(*args, **kwargs) 
     self.metrics.to(*args, **kwargs)
+    # modified to use eval code from esolm codebase
+    self.metrics_esolm.to(*args, **kwargs)
     if hasattr(self.backbone, "block_diff_mask") and self.config.model.attn_backend == 'sdpa':
       self.backbone.block_diff_mask = self.backbone.block_diff_mask.to(*args, **kwargs)
     elif hasattr(self.backbone, "block_diff_mask") and self.config.model.attn_backend == 'flex':
@@ -668,15 +676,11 @@ class Diffusion(L.LightningModule):
       return self.tokenizer.batch_decode(samples)
     if self.sampler == 'semi_ar':
       for _ in range(self.config.sampling.num_sample_batches):
-        import time
-        t0 = time.perf_counter()
         sample_i, nfes = self._semi_ar_sampler(
           n_samples=batch_size_per_gpu,
           num_strides=(seqlen // self.block_size), 
           num_steps=num_steps,
           seqlen=seqlen)
-        dt = time.perf_counter() - t0
-        T = self.config.algo.T
         # import os
         # if not os.path.exists('/share/thickstun/zhihan/bd3lms/perf_results.csv'):
         #   with open('/share/thickstun/zhihan/bd3lms/perf_results.csv', 'w') as f:
@@ -703,7 +707,9 @@ class Diffusion(L.LightningModule):
         self.metrics.nfes.update(nfes)
         self.metrics.gen_nfes.append(nfes)
     samples = torch.cat(samples, dim=0) 
-    return self.tokenizer.batch_decode(samples)
+    # modified to use eval code from esolm codebase
+    # return self.tokenizer.batch_decode(samples)
+    return samples
 
   def _sigma_from_p(self, p):
     return torch.min(- torch.log(1 - p), self.noise.sigma_max)
@@ -720,11 +726,11 @@ class Diffusion(L.LightningModule):
       batch_size_per_gpu=self.config.loader.eval_batch_size,
       num_steps=num_steps,
       eps=eps)
-    self.metrics.record_generative_perplexity(
-      samples,
-      self.config.model.length,
-      self.config.loader.eval_batch_size,
-      self.device)  # looks like a harmless bug
+    # self.metrics.record_generative_perplexity(
+    #   samples,
+    #   self.config.model.length,
+    #   self.config.eval.perplexity_batch_size,
+    #   self.device)  # looks like a harmless bug
     return samples
 
   def get_score(self, x, sigma):
@@ -982,12 +988,12 @@ class Diffusion(L.LightningModule):
     return x
 
   def _sample_nfe(self, num_steps):
-    remaining_tokens = self.block_size  # crucial
+    remaining_tokens = self.block_size  # key difference from mdlm
     num_tokens_to_unmask = []
     dt = 1 / num_steps
     # Assumes a log-linear schedule.
     for t in np.linspace(1, dt, num_steps):
-      _, one_minus_alpha_t = self.noise(t)  # crucial
+      _, one_minus_alpha_t = self.noise(t)  # key difference from mdlm
       _, one_minus_alpha_s = self.noise(t - dt)
       alpha_t = 1 - one_minus_alpha_t
       alpha_s = 1 - one_minus_alpha_s
@@ -1020,7 +1026,9 @@ class Diffusion(L.LightningModule):
       self.backbone.reset_kv_cache(eval_batch_size=self.config.loader.eval_batch_size)
 
     import time
-    torch.cuda.synchronize()
+    profile_throughput = self.config.sampling.profile_throughput
+    if profile_throughput:
+      torch.cuda.synchronize()
     start_time = time.time()
 
     # sampling_steps_per_block_list = []
@@ -1029,7 +1037,7 @@ class Diffusion(L.LightningModule):
       # sample next block
       if stride_num == 0:
         x_accum = self._sample_prior(n_samples, self.block_size).to(self.device)
-        x_accum[:, 0] = self.tokenizer.bos_token_id
+        # x_accum[:, 0] = self.tokenizer.bos_token_id
       else:
         if mdlm_semi_ar:
           x = self._sample_prior(n_samples, 512).to(self.device)
@@ -1050,16 +1058,16 @@ class Diffusion(L.LightningModule):
       t = 1
       # sampling_steps_per_block = 0
 
-      profile_throughput = self.config.sampling.profile_throughput
       if profile_throughput:
         assert self.config.sampling.kv_cache
         nfe = self._sample_nfe(num_steps)
         print('nfe', nfe)
         sigma_t = torch.zeros(n_samples, device=x_accum.device)
-        for i in range(nfe):  # number of iterations to get all clean tokens
+        # number of iterations to get all clean tokens
+        for i in range(nfe):
           _ = self.backbone(x_accum[:, -self.block_size:], sigma_t, 
                             sample_mode=True, store_kv=False)
-        # one extra network evaluation required for the last token
+        # one extra network evaluation for kv caching
         _ = self.forward(x_accum[:, -self.block_size:], sigma_t, 
                           sample_mode=True, store_kv=True)
       else:
@@ -1086,7 +1094,8 @@ class Diffusion(L.LightningModule):
         
           x_accum[:, fwd_idx] = x_next
 
-    torch.cuda.synchronize()
+    if profile_throughput:
+      torch.cuda.synchronize()
     end_time = time.time()
     print(f'Time taken: {end_time - start_time} seconds')
       # check if we need to resample (or stop sampling for variable-length sampling)

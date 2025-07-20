@@ -437,7 +437,7 @@ class DDiTBlock(nn.Module):
                latent_dim=None, cond_dim=None,
                latent_conditioning=-1, mlp_ratio=4,
                dropout=0.1, block_size=1,
-               max_batch_size=64, max_seqlen=1024, attn_backend='flash_attn'):
+               max_batch_size=64, max_seqlen=1024, attn_backend='flash_attn', config=None):
     super().__init__()
     self.max_seqlen = max_seqlen
     self.n = n
@@ -445,6 +445,7 @@ class DDiTBlock(nn.Module):
     self.adaLN = adaLN
     self.latent_conditioning = latent_conditioning
     self.block_size = block_size
+    self.config = config
 
     self.norm1 = LayerNorm(dim)
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
@@ -500,8 +501,10 @@ class DDiTBlock(nn.Module):
         qkv = apply_rotary_pos_emb(
           qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
       else:
-        qkv = apply_rotary_pos_emb_torchscript(
-          qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
+        profile_throughput = self.config.sampling.profile_throughput
+        if not profile_throughput:
+          qkv = apply_rotary_pos_emb_torchscript(
+            qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
     return qkv
   
   def attn_mlp(self, x, c, gate_msa, gate_mlp, shift_mlp, scale_mlp, x_skip):
@@ -581,7 +584,6 @@ class DDiTBlock(nn.Module):
     else:
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
       
-    # attention
     # if sample_mode:  # this is the real kv caching (angry)
     #   print('real kv caching')
     #   # torch.Size([512, 4, 3, 12, 64])
@@ -709,7 +711,8 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
           dropout=config.model.dropout,
           block_size=self.block_size,
           attn_backend=self.attn_backend,
-          max_seqlen=self.max_seqlen)
+          max_seqlen=self.max_seqlen,
+          config=config)
       blocks.append(block)
     self.blocks = nn.ModuleList(blocks)
     self.output_layer = DDiTFinalLayer(
