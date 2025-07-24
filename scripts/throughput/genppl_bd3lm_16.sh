@@ -34,8 +34,8 @@ srun python -u main.py \
     model.attn_backend=sdpa \
     seed=$SEED \
     sampling.first_hitting=false \
-    sampling.num_sample_batches=10 \
+    sampling.num_sample_batches=6 \
     sampling.nucleus_p=0.9 \
     sampling.kv_cache=true \
-    sampling.profile_throughput=false \
-    sampling.logdir=$PWD/logs/samples_5120/samples_bd3lm_blocksize16_T${T}_seed${SEED}
+    sampling.profile_throughput=true \
+    sampling.logdir=$PWD/logs/throughput/samples_bd3lm_blocksize16_T${T}_seed${SEED}

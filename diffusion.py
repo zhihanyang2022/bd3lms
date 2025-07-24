@@ -1033,7 +1033,7 @@ class Diffusion(L.LightningModule):
 
     # sampling_steps_per_block_list = []
     for stride_num in tqdm(range(num_strides)):
-      print(f'{stride_num+1} / {num_strides}')
+      # print(f'{stride_num+1} / {num_strides}')
       # sample next block
       if stride_num == 0:
         x_accum = self._sample_prior(n_samples, self.block_size).to(self.device)
@@ -1061,7 +1061,7 @@ class Diffusion(L.LightningModule):
       if profile_throughput:
         assert self.config.sampling.kv_cache
         nfe = self._sample_nfe(num_steps)
-        print('nfe', nfe)
+        # print('nfe', nfe)
         sigma_t = torch.zeros(n_samples, device=x_accum.device)
         # number of iterations to get all clean tokens
         for i in range(nfe):

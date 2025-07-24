@@ -10,7 +10,8 @@
 
 BLOCK_SIZE=16 # we recommend 4, 8, or 16. must be a factor of the context length
 DATA_DIR=${HOME}/data/esolm
-RUN_NAME=bd3lm-owt-block_size${BLOCK_SIZE}-${SLURM_JOB_ID}
+# RUN_NAME=bd3lm-owt-block_size${BLOCK_SIZE}-${SLURM_JOB_ID}
+RUN_NAME=bd3lm-owt-block_size${BLOCK_SIZE}-442363
 CHECKPOINT_DIR=${HOME}/checkpoints/${RUN_NAME}
 
 srun python -u main.py \

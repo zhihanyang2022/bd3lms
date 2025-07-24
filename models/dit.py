@@ -584,43 +584,45 @@ class DDiTBlock(nn.Module):
     else:
       qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
       
-    # if sample_mode:  # this is the real kv caching (angry)
-    #   print('real kv caching')
-    #   # torch.Size([512, 4, 3, 12, 64])
-    #   q, k, v = qkv.chunk(3, dim=2)
-    #   # q or k or v shape: [b ? h d]
-    #   q = q.squeeze(dim=2)
-    #   q = q[:, -self.block_size:]
-    #   k = k.squeeze(dim=2)
-    #   v = v.squeeze(dim=2)
-    #   scale = q.shape[-1] ** 0.5
-    #   # swap seq_len and num_heads
-    #   # q shape:   [b h block d]
-    #   # k/v shape: [b h s' d]
-    #   q = q.transpose(1, 2)
-    #   k = k.transpose(1, 2)
-    #   v = v.transpose(1, 2)
-    #   attn_scores = torch.matmul(q, k.transpose(-2, -1)) / scale
-    #   attn_weights = F.softmax(attn_scores, dim=-1)
-    #   x = torch.matmul(attn_weights, v).transpose(1, 2)
-    #   x = x.reshape(x.shape[0], self.block_size, 768)
-    # else:
-    if self.attn_backend == 'flash_attn' and mask is None:
-      qkv = einops.rearrange(qkv, 'b s ... -> (b s) ...')
-      cu_seqlens = torch.arange(
-        0, (batch_size + 1) * seq_len, step=seq_len,
-        dtype=torch.int32, device=qkv.device)
-      x = flash_attn.flash_attn_interface.flash_attn_varlen_qkvpacked_func(
-        qkv, cu_seqlens, seq_len, 0., causal=causal)
-      x = rearrange(x, '(b s) h d -> b s (h d)', b=batch_size)     
-    elif self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
-      x = self.cross_attn_flex(qkv, mask=mask)
-    elif self.attn_backend == 'sdpa':
-      x = self.cross_attn(qkv, mask=mask)
+    if sample_mode and self.config.sampling.profile_throughput:
+      # for sampling to measure throughput
+      # torch.Size([512, 4, 3, 12, 64])
+      q, k, v = qkv.chunk(3, dim=2)
+      # q or k or v shape: [b ? h d]
+      q = q.squeeze(dim=2)
+      q = q[:, -self.block_size:]
+      k = k.squeeze(dim=2)
+      v = v.squeeze(dim=2)
+      scale = q.shape[-1] ** 0.5
+      # swap seq_len and num_heads
+      # q shape:   [b h block d]
+      # k/v shape: [b h s' d]
+      q = q.transpose(1, 2)
+      k = k.transpose(1, 2)
+      v = v.transpose(1, 2)
+      attn_scores = torch.matmul(q, k.transpose(-2, -1)) / scale
+      attn_weights = F.softmax(attn_scores, dim=-1)
+      x = torch.matmul(attn_weights, v).transpose(1, 2)
+      x = x.reshape(x.shape[0], self.block_size, 768)
     else:
-      raise ValueError('Unknown attention backend')
-    if self.kv_cache is not None:
-      x = x[:, -self.block_size:]
+      # for training
+      # for sampling to compute gen ppl and mauve
+      if self.attn_backend == 'flash_attn' and mask is None:
+        qkv = einops.rearrange(qkv, 'b s ... -> (b s) ...')
+        cu_seqlens = torch.arange(
+          0, (batch_size + 1) * seq_len, step=seq_len,
+          dtype=torch.int32, device=qkv.device)
+        x = flash_attn.flash_attn_interface.flash_attn_varlen_qkvpacked_func(
+          qkv, cu_seqlens, seq_len, 0., causal=causal)
+        x = rearrange(x, '(b s) h d -> b s (h d)', b=batch_size)     
+      elif self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
+        x = self.cross_attn_flex(qkv, mask=mask)
+      elif self.attn_backend == 'sdpa':
+        x = self.cross_attn(qkv, mask=mask)
+      else:
+        raise ValueError('Unknown attention backend')
+      if self.kv_cache is not None:
+        x = x[:, -self.block_size:]
     x = self.attn_mlp(x, c, gate_msa, gate_mlp, shift_mlp, scale_mlp, x_skip)
     return x
    
